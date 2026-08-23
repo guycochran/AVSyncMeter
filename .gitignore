@@ -1,0 +1,41 @@
+# Xcode / build
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM
+*.dSYM.zip
+
+# Signing / secrets
+*.p12
+*.cer
+*.certSigningRequest
+*.mobileprovision
+*.provisionprofile
+*.pem
+*.key
+.env
+.env.*
+secrets/
+
+# Media (never commit test movies)
+*.mp4
+*.mov
+*.m4v
+*.mkv
+*.wav
+*.aif
+*.aiff
+media/
+TestFiles/
+
+# Junk
+.DS_Store
+*.swp
+*~
+.idea/

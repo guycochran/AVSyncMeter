@@ -1,0 +1,50 @@
+name: AVSyncMeter
+options:
+  bundleIdPrefix: com.guycochran
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+  defaultConfig: Debug
+settings:
+  IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+  SWIFT_VERSION: "5.0"
+  TARGETED_DEVICE_FAMILY: "1"
+  CURRENT_PROJECT_VERSION: 1
+  MARKETING_VERSION: 0.1.0
+targets:
+  AVSyncMeter:
+    type: application
+    platform: iOS
+    sources:
+      - path: AVSyncMeter
+        excludes:
+          - "**/.DS_Store"
+          - "Assets.xcassets"
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.guycochran.AVSyncMeter
+      PRODUCT_NAME: AVSyncMeter
+      PRODUCT_MODULE_NAME: AVSyncMeter
+      INFOPLIST_FILE: AVSyncMeter/Info.plist
+      GENERATE_INFOPLIST_FILE: false
+      TARGETED_DEVICE_FAMILY: "1"
+      SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: false
+      SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: false
+      CODE_SIGN_STYLE: Automatic
+      SWIFT_EMIT_LOC_STRINGS: "YES"
+    scheme:
+      testTargets:
+        - AVSyncMeterTests
+  AVSyncMeterTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: AVSyncMeterTests
+        excludes:
+          - HostHarness.swift
+    dependencies:
+      - target: AVSyncMeter
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.guycochran.AVSyncMeterTests
+      GENERATE_INFOPLIST_FILE: true
+      TEST_HOST: "$(BUILT_PRODUCTS_DIR)/AVSyncMeter.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AVSyncMeter"
+      BUNDLE_LOADER: "$(TEST_HOST)"
