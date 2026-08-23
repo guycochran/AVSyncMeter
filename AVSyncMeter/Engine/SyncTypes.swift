@@ -105,11 +105,17 @@ struct MeasurementSnapshot: Equatable {
     /// Last 25 valid (non-outlier) pairs, newest first. Offsets are still raw (uncorrected).
     var recentValidSamples: [SyncSample]
 
-    /// measuredOffset - calibrationOffset. Calibration Phase 1 default is 0 ms and is not
-    /// a claim of zero sensor latency.
+    /// Last valid pair minus calibration. Table/debug only — not the main headline.
     var correctedCurrentMilliseconds: Double? {
         guard let current = currentOffsetMilliseconds else { return nil }
         return current - calibrationOffsetMilliseconds
+    }
+
+    /// Median of valid samples minus calibration. Same sign convention as the raw offset.
+    /// Nil when validCount == 0 so the UI stays LISTENING / no pairs.
+    var correctedMedianMilliseconds: Double? {
+        guard validCount > 0 else { return nil }
+        return medianMilliseconds - calibrationOffsetMilliseconds
     }
 
     static let empty = MeasurementSnapshot(

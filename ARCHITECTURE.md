@@ -69,7 +69,7 @@ See `SyncSignConvention` in `SyncTypes.swift`.
 
 Keeps **all** raw paired samples. Recomputes outliers with median + MAD (`k * 1.4826 * MAD`). Snapshot: current, mean, median, min, max, sample stddev, valid count, rejected/unpaired, outlier count, stability flag, calibration.
 
-Never promotes one event to “the answer.”
+Never promotes one event to “the answer.” The main headline uses the median of valid samples minus calibration; the last-25 table still lists each hit.
 
 ## Session and UI
 

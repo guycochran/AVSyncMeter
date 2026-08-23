@@ -33,7 +33,7 @@ Example: `+193 ms` at 29.97 fps is about **5.79 frames**. Recommended delay: **+
 4. Aim the green target at the flash area on the screen.
 5. Set program frame rate in Settings (display only; it converts ms → frames).
 6. Tap **START**. Status is **LISTENING** until pairs arrive.
-7. Watch Current / Average / Median / Variation. Prefer the median of several hits.
+7. The headline AUDIO EARLY/LATE, large ms, Mitti delay, and frames use the **median of valid samples** (minus calibration), not the latest beep. The last-25 table still lists each hit. Watch Average / Median / Variation. Prefer the median.
 8. **SYNC STABLE** means the standard deviation of valid samples is under the Settings threshold (default 8 ms) and you have at least three valid pairs.
 9. Apply the recommended delay in Mitti. Re-measure.
 

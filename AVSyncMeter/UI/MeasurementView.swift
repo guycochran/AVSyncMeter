@@ -97,7 +97,7 @@ struct MeasurementView: View {
     }
 
     private var resultBlock: some View {
-        let offset = session.snapshot.correctedCurrentMilliseconds
+        let offset = session.snapshot.correctedMedianMilliseconds
         let direction = offset.map { MeasurementSession.headline($0) } ?? (session.runState == .idle ? "IDLE" : "LISTENING")
         let color: Color = {
             guard let offset else { return VenueTheme.dim }

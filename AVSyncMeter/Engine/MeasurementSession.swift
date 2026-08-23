@@ -152,7 +152,7 @@ final class MeasurementSession: ObservableObject {
     private func publishSnapshotNow() {
         let snap = engine.snapshot()
         snapshot = snap
-        if let ms = snap.correctedCurrentMilliseconds {
+        if let ms = snap.correctedMedianMilliseconds {
             statusNote = Self.headline(ms)
         }
     }
@@ -206,7 +206,7 @@ final class MeasurementSession: ObservableObject {
             if let luminance { self.liveLuminance = luminance }
             if snap.validCount > 0 {
                 self.runState = .measuring
-                if let ms = snap.correctedCurrentMilliseconds {
+                if let ms = snap.correctedMedianMilliseconds {
                     self.statusNote = Self.headline(ms)
                 }
             }

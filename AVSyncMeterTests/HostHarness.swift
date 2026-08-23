@@ -167,6 +167,20 @@ struct HostHarness {
             expect(abs((snap.recentValidSamples.last?.videoTimestampSeconds ?? -1) - 3.0) < 0.001, "recent oldest of 25")
             e.reset()
             expect(e.snapshot().recentValidSamples.isEmpty && e.snapshot().validCount == 0, "reset clears recent table")
+            expect(e.snapshot().correctedMedianMilliseconds == nil, "no pairs: headline median is nil")
+        }
+        do {
+            let e = engine()
+            expect(e.snapshot().correctedMedianMilliseconds == nil, "empty snapshot median nil")
+            _ = pair(e, tVideo: 0, tAudio: 0.100)
+            _ = pair(e, tVideo: 1, tAudio: 1.200)
+            _ = pair(e, tVideo: 2, tAudio: 2.300)
+            let snap = e.snapshot()
+            expect(abs((snap.currentOffsetMilliseconds ?? 0) - 300) < 0.01, "last pair is 300")
+            expect(abs(snap.medianMilliseconds - 200) < 0.01, "median of 100/200/300 is 200")
+            expect(abs((snap.correctedMedianMilliseconds ?? 0) - 200) < 0.01, "headline uses median not last")
+            e.configuration.calibrationOffsetMilliseconds = 10
+            expect(abs((e.snapshot().correctedMedianMilliseconds ?? 0) - 190) < 0.01, "headline median minus cal")
         }
 
         if failed == 0 {

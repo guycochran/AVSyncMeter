@@ -150,6 +150,23 @@ final class SyncMeasurementEngineTests: XCTestCase {
         e.reset()
         XCTAssertTrue(e.snapshot().recentValidSamples.isEmpty)
         XCTAssertEqual(e.snapshot().validCount, 0)
+        XCTAssertNil(e.snapshot().correctedMedianMilliseconds)
+    }
+
+    func testHeadlineUsesMedianNotLastPair() {
+        let e = engine()
+        XCTAssertNil(e.snapshot().correctedMedianMilliseconds)
+        _ = pair(e, tVideo: 0, tAudio: 0.100)
+        _ = pair(e, tVideo: 1, tAudio: 1.200)
+        _ = pair(e, tVideo: 2, tAudio: 2.300)
+        let snap = e.snapshot()
+        XCTAssertEqual(snap.validCount, 3)
+        XCTAssertEqual(snap.currentOffsetMilliseconds ?? 0, 300, accuracy: 0.01)
+        XCTAssertEqual(snap.medianMilliseconds, 200, accuracy: 0.01)
+        XCTAssertEqual(snap.correctedMedianMilliseconds ?? 0, 200, accuracy: 0.01)
+        e.configuration.calibrationOffsetMilliseconds = 10
+        XCTAssertEqual(e.snapshot().correctedMedianMilliseconds ?? 0, 190, accuracy: 0.01)
+        XCTAssertEqual(e.snapshot().correctedCurrentMilliseconds ?? 0, 290, accuracy: 0.01)
     }
 
     func testCalibrationSubtracts() {
@@ -157,6 +174,7 @@ final class SyncMeasurementEngineTests: XCTestCase {
         _ = pair(e, tVideo: 1, tAudio: 1.200)
         let corrected = e.snapshot().correctedCurrentMilliseconds
         XCTAssertEqual(corrected ?? 0, 188, accuracy: 0.001)
+        XCTAssertEqual(e.snapshot().correctedMedianMilliseconds ?? 0, 188, accuracy: 0.001)
         XCTAssertTrue(e.snapshot().calibrationApplied)
     }
 
@@ -174,6 +192,7 @@ final class SyncMeasurementEngineTests: XCTestCase {
         XCTAssertEqual(stored, 193, accuracy: 0.001)
         e.configuration.calibrationOffsetMilliseconds = stored
         XCTAssertEqual(e.snapshot().correctedCurrentMilliseconds ?? -1, 0, accuracy: 0.001)
+        XCTAssertEqual(e.snapshot().correctedMedianMilliseconds ?? -1, 0, accuracy: 0.001)
         XCTAssertEqual(e.snapshot().calibrationOffsetMilliseconds, 193, accuracy: 0.001)
         e.configuration.calibrationOffsetMilliseconds = 0
         XCTAssertEqual(e.snapshot().correctedCurrentMilliseconds ?? 0, 193, accuracy: 0.001)
