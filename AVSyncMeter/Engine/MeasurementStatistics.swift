@@ -63,6 +63,13 @@ struct MeasurementStatistics {
         rawSamples.filter { !$0.isOutlier }.map(\.offsetMilliseconds)
     }
 
+    static let recentValidLimit = 10
+
+    /// Newest first. Valid-only so the table matches the median/headline population.
+    func recentValidSamples(limit: Int = recentValidLimit) -> [SyncSample] {
+        Array(rawSamples.filter { !$0.isOutlier }.suffix(limit).reversed())
+    }
+
     func snapshot(rejectedUnpaired: Int) -> MeasurementSnapshot {
         let valid = validOffsets
         let current = rawSamples.last(where: { !$0.isOutlier })?.offsetMilliseconds
@@ -85,7 +92,8 @@ struct MeasurementStatistics {
             outlierCount: rawSamples.filter(\.isOutlier).count,
             isStable: stable,
             calibrationOffsetMilliseconds: calibrationOffsetMilliseconds,
-            calibrationApplied: applied
+            calibrationApplied: applied,
+            recentValidSamples: recentValidSamples()
         )
     }
 

@@ -132,6 +132,26 @@ final class SyncMeasurementEngineTests: XCTestCase {
         XCTAssertEqual(frames, 193.0 / 1000.0 * (60_000.0 / 1_001.0), accuracy: 1e-10)
     }
 
+    func testRecentValidNewestFirstCapsAtTenAndOmitsOutlier() {
+        let e = engine()
+        for i in 0..<12 {
+            _ = pair(e, tVideo: Double(i), tAudio: Double(i) + 0.200)
+        }
+        _ = pair(e, tVideo: 20.0, tAudio: 20.0 + 0.850)
+        let snap = e.snapshot()
+        XCTAssertEqual(snap.validCount, 12)
+        XCTAssertEqual(snap.outlierCount, 1)
+        XCTAssertEqual(snap.recentValidSamples.count, 10)
+        XCTAssertEqual(snap.recentValidSamples.first?.offsetMilliseconds ?? 0, 200, accuracy: 0.1)
+        XCTAssertFalse(snap.recentValidSamples.contains(where: \.isOutlier))
+        // Newest first: last valid pair was the 12th 200ms sample (index 11), not the outlier.
+        XCTAssertEqual(snap.recentValidSamples.first?.videoTimestampSeconds ?? -1, 11.0, accuracy: 0.001)
+        XCTAssertEqual(snap.recentValidSamples.last?.videoTimestampSeconds ?? -1, 2.0, accuracy: 0.001)
+        e.reset()
+        XCTAssertTrue(e.snapshot().recentValidSamples.isEmpty)
+        XCTAssertEqual(e.snapshot().validCount, 0)
+    }
+
     func testCalibrationSubtracts() {
         let e = SyncMeasurementEngine(configuration: .init(calibrationOffsetMilliseconds: 12))
         _ = pair(e, tVideo: 1, tAudio: 1.200)

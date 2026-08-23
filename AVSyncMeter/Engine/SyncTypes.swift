@@ -102,6 +102,8 @@ struct MeasurementSnapshot: Equatable {
     var isStable: Bool
     var calibrationOffsetMilliseconds: Double
     var calibrationApplied: Bool
+    /// Last 10 valid (non-outlier) pairs, newest first. Offsets are still raw (uncorrected).
+    var recentValidSamples: [SyncSample]
 
     /// measuredOffset - calibrationOffset. Calibration Phase 1 default is 0 ms and is not
     /// a claim of zero sensor latency.
@@ -122,7 +124,8 @@ struct MeasurementSnapshot: Equatable {
         outlierCount: 0,
         isStable: false,
         calibrationOffsetMilliseconds: 0,
-        calibrationApplied: false
+        calibrationApplied: false,
+        recentValidSamples: []
     )
 }
 

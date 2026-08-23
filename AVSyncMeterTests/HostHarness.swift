@@ -154,6 +154,21 @@ struct HostHarness {
             expect(event != nil && abs(event!.timestampSeconds - expected) < 32.0 / rate, "audio onset sample offset", event.map { String($0.timestampSeconds) } ?? "nil")
         }
 
+        do {
+            let e = engine()
+            for i in 0..<12 {
+                _ = pair(e, tVideo: Double(i), tAudio: Double(i) + 0.200)
+            }
+            _ = pair(e, tVideo: 20.0, tAudio: 20.0 + 0.850)
+            let snap = e.snapshot()
+            expect(snap.validCount == 12 && snap.outlierCount == 1 && snap.recentValidSamples.count == 10, "recent table size")
+            expect(!(snap.recentValidSamples.contains { $0.isOutlier }), "recent table omits outliers")
+            expect(abs((snap.recentValidSamples.first?.videoTimestampSeconds ?? -1) - 11.0) < 0.001, "recent newest first")
+            expect(abs((snap.recentValidSamples.last?.videoTimestampSeconds ?? -1) - 2.0) < 0.001, "recent oldest of ten")
+            e.reset()
+            expect(e.snapshot().recentValidSamples.isEmpty && e.snapshot().validCount == 0, "reset clears recent table")
+        }
+
         if failed == 0 {
             print("ALL HARNESS TESTS PASSED")
         } else {

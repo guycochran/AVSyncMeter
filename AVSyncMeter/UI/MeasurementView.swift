@@ -13,11 +13,13 @@ struct MeasurementView: View {
     var body: some View {
         ZStack {
             VenueTheme.bg.ignoresSafeArea()
+            ScrollView {
             VStack(spacing: 10) {
                 header
                 preview
                 resultBlock
                 statsRow
+                recentTable
                 meters
                 controls
                 calibrateRow
@@ -33,6 +35,7 @@ struct MeasurementView: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
+            }
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
@@ -85,7 +88,7 @@ struct MeasurementView: View {
                 .background(Color.black.opacity(0.72))
             }
         }
-        .frame(maxHeight: 280)
+        .frame(maxHeight: 200)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -155,6 +158,63 @@ struct MeasurementView: View {
                     .multilineTextAlignment(.center)
             }
         }
+    }
+
+    private var recentTable: some View {
+        let samples = session.snapshot.recentValidSamples
+        let cal = session.snapshot.calibrationOffsetMilliseconds
+        let total = session.snapshot.validCount
+        return VStack(alignment: .leading, spacing: 3) {
+            Text("LAST 10 VALID · newest first")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(VenueTheme.dim)
+            HStack(spacing: 0) {
+                tableCell("#", dim: true, width: 28, align: .leading)
+                tableCell("MS", dim: true, width: 72, align: .trailing)
+                tableCell("DIR", dim: true, width: 64, align: .leading)
+                tableCell("FR", dim: true, width: 56, align: .trailing)
+                Spacer(minLength: 0)
+            }
+            if samples.isEmpty {
+                Text("No valid samples")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(VenueTheme.dim)
+                    .padding(.vertical, 4)
+            } else {
+                ForEach(Array(samples.enumerated()), id: \.element.id) { index, sample in
+                    let seq = total - index
+                    let corrected = sample.offsetMilliseconds - cal
+                    let dir: String = {
+                        if abs(corrected) < 0.5 { return "SYNC" }
+                        return corrected > 0 ? "EARLY" : "LATE"
+                    }()
+                    let color: Color = {
+                        if abs(corrected) < 0.5 { return VenueTheme.stable }
+                        return corrected > 0 ? VenueTheme.early : VenueTheme.late
+                    }()
+                    let frames = settings.frameRate.frames(forMilliseconds: corrected)
+                    HStack(spacing: 0) {
+                        tableCell(String(format: "%02d", seq), dim: false, width: 28, align: .leading)
+                        tableCell(String(format: "%+.0f", corrected), dim: false, width: 72, align: .trailing)
+                        tableCell(dir, dim: false, width: 64, align: .leading, color: color)
+                        tableCell(String(format: "%+.2f", frames), dim: true, width: 56, align: .trailing)
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(VenueTheme.panel)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+
+    private func tableCell(_ text: String, dim: Bool, width: CGFloat, align: Alignment, color: Color? = nil) -> some View {
+        Text(text)
+            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .foregroundStyle(color ?? (dim ? VenueTheme.dim : Color.white))
+            .frame(width: width, alignment: align)
     }
 
     private var statsRow: some View {
