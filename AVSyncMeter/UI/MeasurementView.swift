@@ -164,8 +164,10 @@ struct MeasurementView: View {
         let samples = session.snapshot.recentValidSamples
         let cal = session.snapshot.calibrationOffsetMilliseconds
         let total = session.snapshot.validCount
-        return VStack(alignment: .leading, spacing: 3) {
-            Text("LAST 10 VALID · newest first")
+        let rowHeight: CGFloat = 15
+        let visibleRows = min(max(samples.count, 1), 15)
+        return VStack(alignment: .leading, spacing: 2) {
+            Text("LAST 25 VALID · newest first · scroll")
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(VenueTheme.dim)
             HStack(spacing: 0) {
@@ -181,26 +183,34 @@ struct MeasurementView: View {
                     .foregroundStyle(VenueTheme.dim)
                     .padding(.vertical, 4)
             } else {
-                ForEach(Array(samples.enumerated()), id: \.element.id) { index, sample in
-                    let seq = total - index
-                    let corrected = sample.offsetMilliseconds - cal
-                    let dir: String = {
-                        if abs(corrected) < 0.5 { return "SYNC" }
-                        return corrected > 0 ? "EARLY" : "LATE"
-                    }()
-                    let color: Color = {
-                        if abs(corrected) < 0.5 { return VenueTheme.stable }
-                        return corrected > 0 ? VenueTheme.early : VenueTheme.late
-                    }()
-                    let frames = settings.frameRate.frames(forMilliseconds: corrected)
-                    HStack(spacing: 0) {
-                        tableCell(String(format: "%02d", seq), dim: false, width: 28, align: .leading)
-                        tableCell(String(format: "%+.0f", corrected), dim: false, width: 72, align: .trailing)
-                        tableCell(dir, dim: false, width: 64, align: .leading, color: color)
-                        tableCell(String(format: "%+.2f", frames), dim: true, width: 56, align: .trailing)
-                        Spacer(minLength: 0)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(samples.enumerated()), id: \.element.id) { index, sample in
+                            let seq = total - index
+                            let corrected = sample.offsetMilliseconds - cal
+                            let dir: String = {
+                                if abs(corrected) < 0.5 { return "SYNC" }
+                                return corrected > 0 ? "EARLY" : "LATE"
+                            }()
+                            let color: Color = {
+                                if abs(corrected) < 0.5 { return VenueTheme.stable }
+                                return corrected > 0 ? VenueTheme.early : VenueTheme.late
+                            }()
+                            let frames = settings.frameRate.frames(forMilliseconds: corrected)
+                            HStack(spacing: 0) {
+                                tableCell(String(format: "%02d", seq), dim: false, width: 28, align: .leading)
+                                tableCell(String(format: "%+.0f", corrected), dim: false, width: 72, align: .trailing)
+                                tableCell(dir, dim: false, width: 64, align: .leading, color: color)
+                                tableCell(String(format: "%+.2f", frames), dim: true, width: 56, align: .trailing)
+                                Spacer(minLength: 0)
+                            }
+                            .frame(height: rowHeight)
+                        }
                     }
                 }
+                .frame(height: CGFloat(visibleRows) * rowHeight)
+                .scrollIndicators(.visible)
+                .background(Color.black.opacity(0.35))
             }
         }
         .padding(.horizontal, 8)
@@ -212,7 +222,7 @@ struct MeasurementView: View {
 
     private func tableCell(_ text: String, dim: Bool, width: CGFloat, align: Alignment, color: Color? = nil) -> some View {
         Text(text)
-            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
             .foregroundStyle(color ?? (dim ? VenueTheme.dim : Color.white))
             .frame(width: width, alignment: align)
     }

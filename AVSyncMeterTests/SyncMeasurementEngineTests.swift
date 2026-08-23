@@ -132,21 +132,21 @@ final class SyncMeasurementEngineTests: XCTestCase {
         XCTAssertEqual(frames, 193.0 / 1000.0 * (60_000.0 / 1_001.0), accuracy: 1e-10)
     }
 
-    func testRecentValidNewestFirstCapsAtTenAndOmitsOutlier() {
+    func testRecentValidNewestFirstCapsAt25AndOmitsOutlier() {
         let e = engine()
-        for i in 0..<12 {
+        for i in 0..<28 {
             _ = pair(e, tVideo: Double(i), tAudio: Double(i) + 0.200)
         }
-        _ = pair(e, tVideo: 20.0, tAudio: 20.0 + 0.850)
+        _ = pair(e, tVideo: 40.0, tAudio: 40.0 + 0.850)
         let snap = e.snapshot()
-        XCTAssertEqual(snap.validCount, 12)
+        XCTAssertEqual(snap.validCount, 28)
         XCTAssertEqual(snap.outlierCount, 1)
-        XCTAssertEqual(snap.recentValidSamples.count, 10)
+        XCTAssertEqual(snap.recentValidSamples.count, 25)
         XCTAssertEqual(snap.recentValidSamples.first?.offsetMilliseconds ?? 0, 200, accuracy: 0.1)
         XCTAssertFalse(snap.recentValidSamples.contains(where: \.isOutlier))
-        // Newest first: last valid pair was the 12th 200ms sample (index 11), not the outlier.
-        XCTAssertEqual(snap.recentValidSamples.first?.videoTimestampSeconds ?? -1, 11.0, accuracy: 0.001)
-        XCTAssertEqual(snap.recentValidSamples.last?.videoTimestampSeconds ?? -1, 2.0, accuracy: 0.001)
+        // Newest first: last valid pair was the 28th 200ms sample (index 27), not the outlier.
+        XCTAssertEqual(snap.recentValidSamples.first?.videoTimestampSeconds ?? -1, 27.0, accuracy: 0.001)
+        XCTAssertEqual(snap.recentValidSamples.last?.videoTimestampSeconds ?? -1, 3.0, accuracy: 0.001)
         e.reset()
         XCTAssertTrue(e.snapshot().recentValidSamples.isEmpty)
         XCTAssertEqual(e.snapshot().validCount, 0)

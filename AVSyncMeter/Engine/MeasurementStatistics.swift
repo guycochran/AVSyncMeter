@@ -63,7 +63,7 @@ struct MeasurementStatistics {
         rawSamples.filter { !$0.isOutlier }.map(\.offsetMilliseconds)
     }
 
-    static let recentValidLimit = 10
+    static let recentValidLimit = 25
 
     /// Newest first. Valid-only so the table matches the median/headline population.
     func recentValidSamples(limit: Int = recentValidLimit) -> [SyncSample] {

@@ -156,15 +156,15 @@ struct HostHarness {
 
         do {
             let e = engine()
-            for i in 0..<12 {
+            for i in 0..<28 {
                 _ = pair(e, tVideo: Double(i), tAudio: Double(i) + 0.200)
             }
-            _ = pair(e, tVideo: 20.0, tAudio: 20.0 + 0.850)
+            _ = pair(e, tVideo: 40.0, tAudio: 40.0 + 0.850)
             let snap = e.snapshot()
-            expect(snap.validCount == 12 && snap.outlierCount == 1 && snap.recentValidSamples.count == 10, "recent table size")
+            expect(snap.validCount == 28 && snap.outlierCount == 1 && snap.recentValidSamples.count == 25, "recent table size")
             expect(!(snap.recentValidSamples.contains { $0.isOutlier }), "recent table omits outliers")
-            expect(abs((snap.recentValidSamples.first?.videoTimestampSeconds ?? -1) - 11.0) < 0.001, "recent newest first")
-            expect(abs((snap.recentValidSamples.last?.videoTimestampSeconds ?? -1) - 2.0) < 0.001, "recent oldest of ten")
+            expect(abs((snap.recentValidSamples.first?.videoTimestampSeconds ?? -1) - 27.0) < 0.001, "recent newest first")
+            expect(abs((snap.recentValidSamples.last?.videoTimestampSeconds ?? -1) - 3.0) < 0.001, "recent oldest of 25")
             e.reset()
             expect(e.snapshot().recentValidSamples.isEmpty && e.snapshot().validCount == 0, "reset clears recent table")
         }
