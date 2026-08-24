@@ -153,6 +153,19 @@ final class SyncMeasurementEngineTests: XCTestCase {
         XCTAssertNil(e.snapshot().correctedMedianMilliseconds)
     }
 
+    func testSpanIsMaxMinusMinOfValidSamples() {
+        let e = engine()
+        XCTAssertEqual(e.snapshot().spanMilliseconds, 0, accuracy: 0.0001)
+        _ = pair(e, tVideo: 0, tAudio: 0.100)
+        _ = pair(e, tVideo: 1, tAudio: 1.200)
+        _ = pair(e, tVideo: 2, tAudio: 2.140)
+        let snap = e.snapshot()
+        XCTAssertEqual(snap.validCount, 3)
+        XCTAssertEqual(snap.minMilliseconds, 100, accuracy: 0.01)
+        XCTAssertEqual(snap.maxMilliseconds, 200, accuracy: 0.01)
+        XCTAssertEqual(snap.spanMilliseconds, 100, accuracy: 0.01)
+    }
+
     func testHeadlineUsesMedianNotLastPair() {
         let e = engine()
         XCTAssertNil(e.snapshot().correctedMedianMilliseconds)

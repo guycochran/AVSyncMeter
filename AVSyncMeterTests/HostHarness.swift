@@ -53,6 +53,7 @@ struct HostHarness {
             }
             let snap = e.snapshot()
             expect(snap.validCount == offsets.count && snap.standardDeviationMilliseconds < 5 && snap.isStable, "small random jitter")
+            expect(abs(snap.spanMilliseconds - (snap.maxMilliseconds - snap.minMilliseconds)) < 0.0001 && snap.spanMilliseconds > 0, "span is max-min")
         }
         do {
             let e = engine()

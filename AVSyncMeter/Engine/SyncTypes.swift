@@ -118,6 +118,12 @@ struct MeasurementSnapshot: Equatable {
         return medianMilliseconds - calibrationOffsetMilliseconds
     }
 
+    /// max-min of valid samples. 0 when empty (UI shows em dash via validCount).
+    var spanMilliseconds: Double {
+        guard validCount > 0 else { return 0 }
+        return maxMilliseconds - minMilliseconds
+    }
+
     static let empty = MeasurementSnapshot(
         currentOffsetMilliseconds: nil,
         meanMilliseconds: 0,

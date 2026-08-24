@@ -128,8 +128,14 @@ struct MeasurementView: View {
                     .font(.system(size: 14, design: .monospaced))
                     .foregroundStyle(VenueTheme.dim)
             }
+            Text("Headline / Mitti delay = CORRECTED median")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(VenueTheme.dim)
+            rawCorrectedRow
             stabilityBadge
             calibrationBadge
+            honestyLine
+            pcmHint
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
@@ -148,16 +154,68 @@ struct MeasurementView: View {
     private var calibrationBadge: some View {
         Group {
             if session.snapshot.calibrationApplied {
-                Text(String(format: "Calibrated: %+.0f ms", session.snapshot.calibrationOffsetMilliseconds))
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                Text(String(format: "Cal: %+.0f ms applied. ZERO can make CORRECTED 0 — not lab-grade.", session.snapshot.calibrationOffsetMilliseconds))
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(VenueTheme.early)
-            } else {
-                Text("No calibration applied (0 ms). Not a claim of zero sensor latency.")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(VenueTheme.dim)
                     .multilineTextAlignment(.center)
+            } else {
+                Text("Cal: none applied")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(VenueTheme.dim)
             }
         }
+    }
+
+    private var rawCorrectedRow: some View {
+        let raw = session.snapshot.validCount > 0 ? session.snapshot.medianMilliseconds : nil
+        let corr = session.snapshot.correctedMedianMilliseconds
+        let corrNote = session.snapshot.calibrationApplied ? "after cal" : "same as RAW (none applied)"
+        return HStack(spacing: 8) {
+            offsetColumn(title: "RAW", value: raw, note: "phone measurement")
+            offsetColumn(title: "CORRECTED", value: corr, note: corrNote)
+        }
+        .padding(.horizontal, 6)
+        .padding(.top, 4)
+    }
+
+    private func offsetColumn(title: String, value: Double?, note: String) -> some View {
+        VStack(spacing: 2) {
+            Text(title)
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundStyle(VenueTheme.meter)
+            if let value {
+                Text(String(format: "%+.0f ms", value))
+                    .font(.system(size: 18, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.white)
+            } else {
+                Text("— ms")
+                    .font(.system(size: 18, weight: .bold, design: .monospaced))
+                    .foregroundStyle(VenueTheme.dim)
+            }
+            Text(note)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(VenueTheme.dim)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var honestyLine: some View {
+        Text("Not laboratory-grade. Type the number into Mitti (app does not push delay). Use a PCM test file. Start the file from the beginning (10 s lead-in). Harkwood Sync-One2 files: external only, not bundled — harkwood.co.uk/products/sync-one2/test-files/")
+            .font(.system(size: 10, design: .monospaced))
+            .foregroundStyle(VenueTheme.dim)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 8)
+            .padding(.top, 4)
+    }
+
+    private var pcmHint: some View {
+        Text("PCM stereo, start from the beginning.")
+            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .foregroundStyle(VenueTheme.meter)
+            .padding(.top, 2)
     }
 
     private var recentTable: some View {
@@ -234,6 +292,7 @@ struct MeasurementView: View {
             stat("AVG", fmt(s.meanMilliseconds))
             stat("MED", fmt(s.medianMilliseconds))
             stat("VAR", fmt(s.standardDeviationMilliseconds))
+            stat("SPAN", fmt(s.spanMilliseconds))
         }
         .background(VenueTheme.panel)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
