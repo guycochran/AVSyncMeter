@@ -10,7 +10,12 @@ import Accelerate
 /// 1 ms per beep. The noise floor is updated only on quiet hops, never
 /// during the mask. Onset time = buffer media timestamp + sample offset.
 ///
-/// No pitch detection.
+/// Stage-noise: only *beep-like* pulses are emitted — a sharp short transient
+/// (~10–20 ms then quiet), not sustained voice. Speech stays loud so quiet
+/// re-arm cannot fire on the next syllable. A 1 kHz overlay can still win
+/// while voice is held. 400 ms mask after a real beep.
+///
+/// No pitch detection (high-band energy / duration only).
 final class AudioPulseDetector {
     struct Configuration {
         var sensitivity: Double = 0.65
@@ -29,6 +34,10 @@ final class AudioPulseDetector {
         var noiseHalfLifeSeconds: Double = 0.6
         var confirmationSamples: Int = 6
         var lookbackSeconds: Double = 0.03
+        /// Longer than this while still loud is voice, not a Harkwood/SIG beep.
+        var beepMaxDurationSeconds: Double = 0.040
+        /// High-band (mean abs-diff) jump that can overlay a 1 kHz beep on speech.
+        var highBandJump: Double = 0.035
     }
 
     var configuration: Configuration
@@ -43,6 +52,22 @@ final class AudioPulseDetector {
     private var tail: [Float] = []
     private var tailStartSeconds: Double = 0
     private var tailRate: Double = 0
+    private var candidate: Candidate?
+    private var previousHighBand: Double = 0
+    private var previousZCR: Double = 0
+    /// After dropping a voice-like hold, ignore broadband onsets until quiet
+    /// so the next syllable cannot re-arm. A high-band beep overlay still can.
+    private var ignoreSustainedUntilQuiet = false
+
+    private struct Candidate {
+        var onsetSeconds: Double
+        var envelope: Double
+        var threshold: Double
+        var sharpness: Double
+        var highBand: Double
+        var lastLoudSeconds: Double
+        var peakEnvelope: Double
+    }
 
     init(configuration: Configuration = Configuration()) {
         self.configuration = configuration
@@ -59,6 +84,10 @@ final class AudioPulseDetector {
         tail.removeAll()
         tailStartSeconds = 0
         tailRate = 0
+        candidate = nil
+        previousHighBand = 0
+        previousZCR = 0
+        ignoreSustainedUntilQuiet = false
     }
 
     func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, bufferStartOverride: Double? = nil) -> AudioPulseEvent? {
@@ -94,6 +123,9 @@ final class AudioPulseDetector {
             let end = min(combined.count, i + hop)
             let slice = combined[i..<end]
             let rms = Self.rms(slice)
+            let highBand = Self.meanAbsDiff(slice)
+            let zcr = Self.zeroCrossingRate(slice)
+            let sharp = Self.sharpness(zcr: zcr, mad: highBand, rms: rms)
             let t = combinedStart + Double(i) / sampleRate
             let dt = Double(end - i) / sampleRate
 
@@ -104,12 +136,14 @@ final class AudioPulseDetector {
                 baseline = max(rms, 1e-5)
                 hasBaseline = true
                 previousEnvelope = rms
+                previousHighBand = highBand; previousZCR = zcr
                 i = end
                 continue
             }
 
             if t < maskUntilSeconds {
                 previousEnvelope = rms
+                previousHighBand = highBand; previousZCR = zcr
                 i = end
                 continue
             }
@@ -117,8 +151,10 @@ final class AudioPulseDetector {
             if awaitingRearm {
                 let rearmQuiet = rms < max(lastThreshold * configuration.rearmQuietFraction, baseline * 3, 0.02)
                 previousEnvelope = rms
+                previousHighBand = highBand; previousZCR = zcr
                 if rearmQuiet {
                     awaitingRearm = false
+                    ignoreSustainedUntilQuiet = false
                     updateNoiseFloor(rms: rms, dt: dt)
                 }
                 i = end
@@ -128,32 +164,96 @@ final class AudioPulseDetector {
             let quiet = rms < max(lastThreshold * 0.35, baseline * 3)
             if quiet {
                 updateNoiseFloor(rms: rms, dt: dt)
+                ignoreSustainedUntilQuiet = false
             }
 
-            // Must clear threshold with real headroom so a 0.001 gap above env cannot fire.
-            let trigger = rms > lastThreshold * 1.12
+            let rmsTrigger = rms > lastThreshold * 1.12
                 && rms > previousEnvelope + lastThreshold * 0.25
                 && rms > baseline * configuration.triggerNoiseMultiple * 0.5
+            // 1 kHz overlay on already-loud speech: broadband RMS may not jump.
+            // Entering ~1 kHz territory (zcr ~0.042 at 48 kHz), not a hop-delta —
+            // a ramped beep can raise ZCR across several hops without a 0.010 jump.
+            let zcrTrigger = zcr > 0.030 && previousZCR < 0.024
+            let highTrigger = rms > lastThreshold * 0.8 && (
+                (highBand > previousHighBand + configuration.highBandJump && highBand > 0.025)
+                || zcrTrigger
+            )
 
-            if trigger {
-                let onsetThr = onsetThreshold()
-                let searchStart = max(0, i - Int(configuration.lookbackSeconds * sampleRate))
-                let onsetIndex = refineOnset(
-                    samples: combined,
-                    searchStart: searchStart,
-                    hopEnd: end,
-                    threshold: onsetThr
-                )
-                let onset = combinedStart + Double(onsetIndex) / sampleRate
-                maskUntilSeconds = onset + configuration.maskSeconds
-                awaitingRearm = true
-                event = AudioPulseEvent(timestampSeconds: onset, envelope: rms, threshold: lastThreshold)
-                previousEnvelope = rms
-                break
+            if let c = candidate {
+                // Beep duration is high-band for a sharp/high candidate so
+                // following speech cannot stretch a 16 ms 1 kHz burst into "voice".
+                // Dull onsets still use RMS so a DC click stays short-then-quiet.
+                let zcrStill = zcr > 0.022
+                let stillThisBurst = c.sharpness >= 0.40 ? zcrStill : (!quiet || zcrStill)
+                if stillThisBurst {
+                    candidate?.lastLoudSeconds = t + dt
+                    if rms > c.peakEnvelope {
+                        candidate?.peakEnvelope = rms
+                        candidate?.envelope = rms
+                    }
+                    if sharp > c.sharpness {
+                        candidate?.sharpness = sharp
+                        candidate?.highBand = max(c.highBand, highBand)
+                    }
+                }
+                if zcr > 0.030 && c.sharpness < 0.45 {
+                    // Overlay beep: stamp this hop. Walking 30 ms back would land
+                    // on the syllable that is already over the onset threshold.
+                    candidate = Candidate(
+                        onsetSeconds: t,
+                        envelope: rms,
+                        threshold: lastThreshold,
+                        sharpness: max(sharp, 0.55),
+                        highBand: highBand,
+                        lastLoudSeconds: t + dt,
+                        peakEnvelope: rms
+                    )
+                }
+                if event == nil, let ev = finishCandidateIfReady(now: t + dt) {
+                    event = ev
+                    previousEnvelope = rms
+                    previousHighBand = highBand; previousZCR = zcr
+                    i = end
+                    continue
+                }
+            } else {
+                let allowBroadband = !ignoreSustainedUntilQuiet
+                let trigger = (allowBroadband && rmsTrigger) || highTrigger
+                if trigger {
+                    let onset: Double
+                    if highTrigger && !rmsTrigger {
+                        onset = t
+                    } else {
+                        let onsetThr = onsetThreshold()
+                        let searchStart = max(0, i - Int(configuration.lookbackSeconds * sampleRate))
+                        let onsetIndex = refineOnset(
+                            samples: combined,
+                            searchStart: searchStart,
+                            hopEnd: end,
+                            threshold: onsetThr
+                        )
+                        onset = combinedStart + Double(onsetIndex) / sampleRate
+                    }
+                    candidate = Candidate(
+                        onsetSeconds: onset,
+                        envelope: rms,
+                        threshold: lastThreshold,
+                        sharpness: highTrigger ? max(sharp, 0.55) : sharp,
+                        highBand: highBand,
+                        lastLoudSeconds: t + dt,
+                        peakEnvelope: rms
+                    )
+                }
             }
 
             previousEnvelope = rms
+            previousHighBand = highBand; previousZCR = zcr
             i = end
+        }
+
+        if event == nil {
+            let now = combinedStart + Double(combined.count) / sampleRate
+            event = finishCandidateIfReady(now: now)
         }
 
         let keep = max(32, Int(configuration.lookbackSeconds * sampleRate))
@@ -166,6 +266,38 @@ final class AudioPulseDetector {
         }
         tailRate = sampleRate
         return event
+    }
+
+    /// Commit a short-then-quiet candidate as beep-like, or drop sustained voice.
+    private func finishCandidateIfReady(now: Double) -> AudioPulseEvent? {
+        guard let c = candidate else { return nil }
+        let duration = max(0, c.lastLoudSeconds - c.onsetSeconds)
+        let seen = now - c.onsetSeconds
+        let quietFor = now - c.lastLoudSeconds
+        let maxDur = configuration.beepMaxDurationSeconds
+
+        if quietFor >= 0.004 && duration <= maxDur && duration >= 0.001 && seen >= duration {
+            candidate = nil
+            ignoreSustainedUntilQuiet = false
+            maskUntilSeconds = c.onsetSeconds + configuration.maskSeconds
+            awaitingRearm = true
+            return AudioPulseEvent(
+                timestampSeconds: c.onsetSeconds,
+                envelope: c.peakEnvelope,
+                threshold: c.threshold,
+                durationSeconds: duration,
+                sharpness: c.sharpness,
+                isBeepLike: true
+            )
+        }
+        if seen >= 0.045 && duration > maxDur {
+            // Sustained voice: do not emit, do not 400 ms-mask (a 1 kHz beep
+            // overlay still has to win). Stay deaf to the next syllable until quiet.
+            candidate = nil
+            ignoreSustainedUntilQuiet = true
+            return nil
+        }
+        return nil
     }
 
     /// Envelope-only hook used by older tests. Prefer `processMonoSamples` for onset.
@@ -202,7 +334,10 @@ final class AudioPulseDetector {
             return AudioPulseEvent(
                 timestampSeconds: timestampSeconds,
                 envelope: envelope,
-                threshold: lastThreshold
+                threshold: lastThreshold,
+                durationSeconds: 0.016,
+                sharpness: 1.0,
+                isBeepLike: true
             )
         }
         return nil
@@ -235,6 +370,42 @@ final class AudioPulseDetector {
         let tau = max(0.05, configuration.noiseHalfLifeSeconds)
         let a = 1 - exp(-max(dt, 1e-4) / tau)
         baseline = baseline + (rms - baseline) * a
+    }
+
+    static func meanAbsDiff(_ slice: ArraySlice<Float>) -> Double {
+        guard slice.count >= 2 else { return 0 }
+        var sum: Double = 0
+        var prev = slice[slice.startIndex]
+        var n = 0
+        var i = slice.index(after: slice.startIndex)
+        while i < slice.endIndex {
+            let x = slice[i]
+            sum += Double(abs(x - prev))
+            prev = x
+            n += 1
+            i = slice.index(after: i)
+        }
+        return n == 0 ? 0 : sum / Double(n)
+    }
+
+    static func zeroCrossingRate(_ slice: ArraySlice<Float>) -> Double {
+        guard slice.count >= 2 else { return 0 }
+        var c = 0
+        var prev = slice[slice.startIndex]
+        var i = slice.index(after: slice.startIndex)
+        while i < slice.endIndex {
+            let x = slice[i]
+            if (prev >= 0 && x < 0) || (prev < 0 && x >= 0) { c += 1 }
+            prev = x
+            i = slice.index(after: i)
+        }
+        return Double(c) / Double(slice.count - 1)
+    }
+
+    static func sharpness(zcr: Double, mad: Double, rms: Double) -> Double {
+        let z = min(1.0, zcr / 0.05)
+        let click = rms > 1e-6 ? min(1.0, (mad / max(rms, 1e-6)) / 0.55) : 0
+        return max(z, click)
     }
 
     private func refineOnset(samples: [Float], searchStart: Int, hopEnd: Int, threshold: Double) -> Int {

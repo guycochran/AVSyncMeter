@@ -69,11 +69,13 @@ No computer vision. Each frame:
 4. Onset is walked back to the first sample over a **low** noise-floor multiple, so AGC cannot slide the stamp 1 ms/s.
 5. Mask for ~400 ms (Harkwood is 1 Hz) and re-arm only after the envelope goes quiet so ring-down is not a second event. Threshold sits on a quiet-only floor with real headroom, not 0.001 above env.
 
-No pitch detection.
+Stage-noise: emit only beep-like (short sharp transient ~10–20 ms then quiet). Sustained voice is not an event; a 1 kHz overlay can still win while speech is held. 400 ms mask after a real beep; quiet re-arm must not fire on the next syllable.
+
+No pitch detection (duration + high-band energy only).
 
 ## Pairing (`SyncMeasurementEngine`)
 
-Queues unmatched flashes and pulses, sorted by unified time. Oldest flash vs oldest pulse: they pair only if `|audio − video|` is inside `maxPairOffsetSeconds` (default ±400 ms). Otherwise the older head expires unpaired, so a 220–350 ms ring-down replica cannot steal the next 1 Hz flash. `pairingWindowSeconds` (default 400 ms) is how long a lone event waits. No nearest-neighbour stealing, no accumulating pairing debt.
+At most one pending flash and one pending pulse. Latest beep-like pulse wins; voice/chatter is never queued. They pair only if `|audio − video|` is inside `maxPairOffsetSeconds` (default ±400 ms). Voice-like pulses never pair, so extra speech in the window cannot steal the house beep. Otherwise the older head expires unpaired, so a 220–350 ms ring-down replica cannot steal the next 1 Hz flash. `pairingWindowSeconds` (default 400 ms) is how long a lone event waits. No nearest-neighbour stealing, no accumulating pairing debt.
 
 ```
 offsetMilliseconds = (audioUnified − videoUnified) * 1000
@@ -103,7 +105,7 @@ SwiftUI (`MeasurementView`) is dark, low-decoration, venue-friendly: preview + t
 
 `AVSyncMeterTests/SyncMeasurementEngineTests.swift` and `WalkAndClockTests.swift` are the XCTest target. `HostHarness.swift` + `SyntheticRig.swift` is a macOS `@main` runner used when `xcodebuild test` cannot attach to the installed iOS 27 simulator runtime.
 
-The harness requires a constant synthetic offset to stay flat, a +164 ms audio step to move the median by ~164 ms, an already-mapped 30.000 vs 29.97 (1000 ppm) pass whose reported offsets stay flat, and a true-host integer-30 capture vs 29.97-file events pass that walks ~1 ms/beep until capture is locked to 30_000/1001 or 60_000/1001 (then the same constant-delay pass is flat). Integer 30 vs 29.97 content is not visible to relative A−V on unified buffers. Build 11: ±400 ms pair window still rejects 220–350 ms replicas vs the next flash; generated beep PCM exists; WALK is not green on huge SPAN; capture footer distinguishes 29.97 NTSC from integer 30.00.
+The harness requires a constant synthetic offset to stay flat, a +164 ms audio step to move the median by ~164 ms, an already-mapped 30.000 vs 29.97 (1000 ppm) pass whose reported offsets stay flat, and a true-host integer-30 capture vs 29.97-file events pass that walks ~1 ms/beep until capture is locked to 30_000/1001 or 60_000/1001 (then the same constant-delay pass is flat). Integer 30 vs 29.97 content is not visible to relative A−V on unified buffers. Build 11: ±400 ms pair window still rejects 220–350 ms replicas vs the next flash; generated beep PCM exists; WALK is not green on huge SPAN; capture footer distinguishes 29.97 NTSC from integer 30.00. Build 12: voice-like onsets 50/150/250 ms plus a real beep at +80 pair the beep; chatter between 1 Hz flashes does not create pairs; moving luma does not FLASH.
 
 ## File map
 
@@ -113,8 +115,8 @@ The harness requires a constant synthetic offset to stay flat, a +164 ms audio s
 | `Engine/FrameRate.swift` | 23.976–60 including 1001-family rates; picks capture duration from the program picker |
 | `Engine/CaptureClock.swift` | Per-stream PTS → host timebase + relative A−V rate-lock |
 | `Engine/VideoFlashDetector.swift` | First-edge luma flash |
-| `Engine/AudioPulseDetector.swift` | Onset with frozen noise floor |
-| `Engine/SyncMeasurementEngine.swift` | Chronological 1:1 pairing |
+| `Engine/AudioPulseDetector.swift` | Onset with frozen noise floor; beep-like vs voice |
+| `Engine/SyncMeasurementEngine.swift` | One pending each; beep-like only pairs |
 | `Engine/MeasurementStatistics.swift` | Stats + MAD + walk |
 | `Engine/TestSignalBeep.swift` | Generated 1 kHz PCM / WAV for SIG (not a measurement timestamp) |
 | `Engine/AppSettings.swift` | UserDefaults |

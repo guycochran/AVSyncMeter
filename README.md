@@ -104,6 +104,7 @@ See [ACCURACY.md](ACCURACY.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 - Phone ISP, exposure, rolling shutter, mic processing, AGC, and buffer size all add uncertainty. Capture timestamps are unified onto one host clock; leftover bias from unlocked *source* clocks (separate video vs audio interfaces) can remain in the median. A 1 ms/beep walk on a constant delay is a meter bug, not house truth.
 - Simulator cannot perform a live optical/acoustic measurement.
 - In-app test signal is a simple 1 Hz white flash + generated PCM beep (Phase 2). Same-phone loopback while measuring the house injects extra AUDIOPULSE. Prefer a timeline-generated pattern for real work.
+- Stage-noise: only beep-like (short sharp) audio pairs. Deck speech in the 400 ms window must not steal the house beep.
 - Do not treat a single pair as truth. Use repeats and the median.
 
 ## External validation

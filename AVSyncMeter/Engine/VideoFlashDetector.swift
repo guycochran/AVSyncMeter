@@ -99,7 +99,10 @@ final class VideoFlashDetector {
 
         let rising = luminance - previousLuminance
         let aboveFloor = luminance - baseline
-        let hit = rising > lastThreshold && aboveFloor > lastThreshold * 0.5
+        // Work lights / people: a moderate walk through the region is not a
+        // white flash. Harkwood/SIG is a near-white pop from a dark field.
+        let flashLike = luminance >= 0.42 || rising >= 0.28
+        let hit = rising > lastThreshold && aboveFloor > lastThreshold * 0.5 && flashLike
 
         if hit {
             awaitingRearm = true

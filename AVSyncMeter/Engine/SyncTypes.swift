@@ -44,6 +44,35 @@ struct AudioPulseEvent: Equatable {
     let timestampSeconds: Double
     let envelope: Double
     let threshold: Double
+    /// How long the burst stayed up. Harkwood/SIG ~10–20 ms; speech is longer.
+    var durationSeconds: Double = 0.016
+    /// 0...1. High = sharp/high-band (1 kHz beep / click). Low = dull onset.
+    var sharpness: Double = 1.0
+    /// Short sharp transient, not sustained voice. Default true so injected
+    /// test pulses keep pairing like a house beep.
+    var isBeepLike: Bool = true
+
+    static func beepLike(timestampSeconds: Double, envelope: Double = 0.85, threshold: Double = 0.1) -> AudioPulseEvent {
+        AudioPulseEvent(
+            timestampSeconds: timestampSeconds,
+            envelope: envelope,
+            threshold: threshold,
+            durationSeconds: 0.016,
+            sharpness: 0.9,
+            isBeepLike: true
+        )
+    }
+
+    static func voiceLike(timestampSeconds: Double, envelope: Double = 0.45, threshold: Double = 0.1) -> AudioPulseEvent {
+        AudioPulseEvent(
+            timestampSeconds: timestampSeconds,
+            envelope: envelope,
+            threshold: threshold,
+            durationSeconds: 0.12,
+            sharpness: 0.12,
+            isBeepLike: false
+        )
+    }
 }
 
 struct SyncSample: Equatable, Identifiable {

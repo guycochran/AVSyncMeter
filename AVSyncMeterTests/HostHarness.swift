@@ -983,6 +983,213 @@ struct HostHarness {
         }
 
 
+
+        // MARK: - Build 12: stage-noise (beep-like vs voice, one pending, no chase)
+
+        do {
+            // Voice-like onsets 50/150/250 ms after a flash plus a real beep at +80 ms.
+            // Pair MUST be the beep (~+80), not the first syllable.
+            let e = SyncMeasurementEngine()
+            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 1.0, luminance: 0.8, threshold: 0.1))
+            _ = e.ingestPulse(.voiceLike(timestampSeconds: 1.050))
+            _ = e.ingestPulse(.voiceLike(timestampSeconds: 1.150))
+            _ = e.ingestPulse(.voiceLike(timestampSeconds: 1.250))
+            let s = e.ingestPulse(.beepLike(timestampSeconds: 1.080, envelope: 0.85))
+            expect(s != nil && abs(s!.offsetMilliseconds - 80) < 0.5, "voice onsets must not steal; pair is the +80 ms beep", s.map { String(format: "%+.2f n=%d", $0.offsetMilliseconds, e.snapshot().validCount) } ?? "nil")
+            expect(e.snapshot().validCount == 1, "one pair from the beep not the syllables", "n=\(e.snapshot().validCount)")
+        }
+
+        do {
+            let e = SyncMeasurementEngine()
+            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 2.0, luminance: 0.8, threshold: 0.1))
+            _ = e.ingestPulse(.voiceLike(timestampSeconds: 2.050))
+            let s = e.ingestPulse(.beepLike(timestampSeconds: 2.080))
+            _ = e.ingestPulse(.voiceLike(timestampSeconds: 2.150))
+            _ = e.ingestPulse(.voiceLike(timestampSeconds: 2.250))
+            expect(s != nil && abs(s!.offsetMilliseconds - 80) < 0.5, "time-ordered syllable then beep pairs +80", s.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
+            expect(e.snapshot().validCount == 1, "later syllables do not create extra pairs", "n=\(e.snapshot().validCount)")
+        }
+
+        do {
+            // Chatter between 1 Hz flashes must not create pairs.
+            let e = SyncMeasurementEngine()
+            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 1.0, luminance: 0.8, threshold: 0.1))
+            _ = e.ingestPulse(.beepLike(timestampSeconds: 1.006))
+            for t in [1.22, 1.35, 1.48, 1.61, 1.75, 1.88] {
+                _ = e.ingestPulse(.voiceLike(timestampSeconds: t))
+            }
+            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 2.0, luminance: 0.8, threshold: 0.1))
+            _ = e.ingestPulse(.beepLike(timestampSeconds: 2.006))
+            let snap = e.snapshot()
+            expect(snap.validCount == 2, "chatter between 1 Hz flashes does not create pairs", "n=\(snap.validCount) rejected=\(snap.rejectedCount)")
+            let offs = snap.recentValidSamples.map(\.offsetMilliseconds)
+            expect(offs.allSatisfy { abs($0 - 6) < 0.5 }, "chatter pairs stay ~+6 ms", "\(offs)")
+        }
+
+        do {
+            // At most one pending pulse: latest beep-like wins, no queued chatter.
+            let e = SyncMeasurementEngine()
+            _ = e.ingestPulse(.beepLike(timestampSeconds: 1.000, envelope: 0.4))
+            _ = e.ingestPulse(.beepLike(timestampSeconds: 1.080, envelope: 0.9))
+            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 1.000, luminance: 0.8, threshold: 0.1))
+            let snap = e.snapshot()
+            expect(snap.validCount == 1 && abs((snap.currentOffsetMilliseconds ?? 0) - 80) < 0.5, "latest beep-like wins (not the first noise hit)", String(format: "n=%d off=%.2f", snap.validCount, snap.currentOffsetMilliseconds ?? -1))
+        }
+
+        do {
+            // Detector: voice-like onsets 50/150/250 ms plus a 1 kHz 16 ms beep at +80.
+            let d = AudioPulseDetector()
+            let rate = 48_000.0
+            let buf = 1024
+            func feed(from t0: Double, until t1: Double, paint: (Double) -> Float) -> [AudioPulseEvent] {
+                var hits: [AudioPulseEvent] = []
+                var t = t0
+                while t < t1 {
+                    let n = buf
+                    var samples = [Float](repeating: 0, count: n)
+                    for i in 0..<n {
+                        samples[i] = paint(t + Double(i) / rate)
+                    }
+                    if let ev = d.processMonoSamples(samples, bufferStartSeconds: t, sampleRate: rate) {
+                        hits.append(ev)
+                    }
+                    t += Double(n) / rate
+                }
+                return hits
+            }
+            func sample(_ t: Double) -> Float {
+                func syl(_ start: Double, f0: Double) -> Float {
+                    let dur = 0.10
+                    guard t >= start && t < start + dur else { return 0 }
+                    let local = t - start
+                    let env: Float
+                    if local < 0.012 { env = Float(local / 0.012) }
+                    else if local > dur - 0.02 { env = Float(max(0, (dur - local) / 0.02)) }
+                    else { env = 1 }
+                    return env * 0.32 * Float(sin(2 * Double.pi * f0 * t) + 0.35 * sin(2 * Double.pi * 2 * f0 * t))
+                }
+                func beep(_ start: Double) -> Float {
+                    let dur = 0.016
+                    guard t >= start && t < start + dur else { return 0 }
+                    let local = t - start
+                    let fade = 0.0015
+                    let env: Float
+                    if local < fade { env = Float(local / fade) }
+                    else if local > dur - fade { env = Float(max(0, (dur - local) / fade)) }
+                    else { env = 1 }
+                    return env * 0.75 * Float(sin(2 * Double.pi * 1_000 * t))
+                }
+                let mixed = 0.001 + syl(1.050, f0: 180) + beep(1.080) + syl(1.150, f0: 200) + syl(1.250, f0: 170)
+                return max(-1, min(1, mixed))
+            }
+            _ = feed(from: 0.0, until: 0.9, paint: { _ in 0.001 })
+            let hits = feed(from: 0.9, until: 1.70, paint: sample)
+            expect(hits.count == 1, "detector: beep not syllables (50/150/250 + beep +80)", "n=\(hits.count) times=\(hits.map { String(format: "%.3f beep=%d", $0.timestampSeconds, $0.isBeepLike ? 1 : 0) })")
+            if let onset = hits.first {
+                expect(abs(onset.timestampSeconds - 1.080) < 0.010, "detector onset is the +80 ms beep", String(format: "%.4f", onset.timestampSeconds))
+                expect(onset.isBeepLike, "emitted pulse is beep-like")
+            }
+        }
+
+        do {
+            // Chatter-only (no beep) between 1 Hz windows → no detector events.
+            let d = AudioPulseDetector()
+            let rate = 48_000.0
+            let buf = 1024
+            func feed(from t0: Double, until t1: Double, paint: (Double) -> Float) -> [AudioPulseEvent] {
+                var hits: [AudioPulseEvent] = []
+                var t = t0
+                while t < t1 {
+                    var samples = [Float](repeating: 0, count: buf)
+                    for i in 0..<buf { samples[i] = paint(t + Double(i) / rate) }
+                    if let ev = d.processMonoSamples(samples, bufferStartSeconds: t, sampleRate: rate) {
+                        hits.append(ev)
+                    }
+                    t += Double(buf) / rate
+                }
+                return hits
+            }
+            func chatter(_ t: Double) -> Float {
+                for start in [1.22, 1.40, 1.58, 1.75] {
+                    let dur = 0.10
+                    if t >= start && t < start + dur {
+                        let local = t - start
+                        let env: Float = local < 0.015 ? Float(local / 0.015) : 1
+                        return env * 0.48 * Float(sin(2 * Double.pi * 190 * t))
+                    }
+                }
+                return 0.001
+            }
+            _ = feed(from: 0.0, until: 0.9, paint: { _ in 0.001 })
+            let hits = feed(from: 0.9, until: 2.1, paint: chatter)
+            expect(hits.isEmpty, "detector: voice chatter between flashes emits no beep", "n=\(hits.count) times=\(hits.map { String(format: "%.3f", $0.timestampSeconds) })")
+        }
+
+        do {
+            // After a real beep, speech stays loud: quiet re-arm must not fire on the next syllable.
+            let d = AudioPulseDetector()
+            let rate = 48_000.0
+            let buf = 1024
+            func feed(from t0: Double, until t1: Double, paint: (Double) -> Float) -> [AudioPulseEvent] {
+                var hits: [AudioPulseEvent] = []
+                var t = t0
+                while t < t1 {
+                    var samples = [Float](repeating: 0, count: buf)
+                    for i in 0..<buf { samples[i] = paint(t + Double(i) / rate) }
+                    if let ev = d.processMonoSamples(samples, bufferStartSeconds: t, sampleRate: rate) {
+                        hits.append(ev)
+                    }
+                    t += Double(buf) / rate
+                }
+                return hits
+            }
+            func sample(_ t: Double) -> Float {
+                var x: Float = 0.001
+                if t >= 1.000 && t < 1.016 {
+                    let local = t - 1.000
+                    let env: Float = local < 0.001 ? Float(local / 0.001) : 1
+                    x = max(x, env * 0.90 * Float(sin(2 * Double.pi * 1_000 * t)))
+                }
+                if t >= 1.020 && t < 1.380 {
+                    x = max(x, 0.45 * Float(sin(2 * Double.pi * 180 * t)))
+                }
+                return x
+            }
+            _ = feed(from: 0.0, until: 0.8, paint: { _ in 0.001 })
+            let hits = feed(from: 0.8, until: 1.55, paint: sample)
+            expect(hits.count == 1, "quiet re-arm does not fire on the next syllable after a beep", "n=\(hits.count) times=\(hits.map { String(format: "%.3f", $0.timestampSeconds) })")
+        }
+
+        do {
+            // Moving luma (work lights / people) must not fire; a real white flash still does.
+            let d = VideoFlashDetector()
+            var hits: [Double] = []
+            var t = 0.0
+            let fps = 60.0
+            while t < 2.0 {
+                // Slow walk 0.05 → 0.32 over 2 s, plus a 0.16 one-frame bump at 0.8 s.
+                var luma = 0.05 + 0.27 * (t / 2.0)
+                if abs(t - 0.80) < 0.5 / fps { luma += 0.16 }
+                if let ev = d.processLuminance(luma, timestampSeconds: t) {
+                    hits.append(ev.timestampSeconds)
+                }
+                t += 1.0 / fps
+            }
+            expect(hits.isEmpty, "moving luma / people do not fire FLASH", "n=\(hits.count) times=\(hits)")
+            if d.processLuminance(0.05, timestampSeconds: 2.05) != nil { hits.append(2.05) }
+            if let ev = d.processLuminance(0.87, timestampSeconds: 2.20) { hits.append(ev.timestampSeconds) }
+            expect(hits.count == 1 && abs((hits.first ?? 0) - 2.20) < 0.03, "white flash still fires after luma walk", "hits=\(hits)")
+        }
+
+        do {
+            // +164 / +200 house delay still pairs inside 400 ms after stage-noise path.
+            let e = SyncMeasurementEngine()
+            let a = pair(e, tVideo: 1.0, tAudio: 1.164)
+            let b = pair(e, tVideo: 2.0, tAudio: 2.200)
+            expect(a != nil && abs(a!.offsetMilliseconds - 164) < 0.001, "stage-noise path: +164 still pairs")
+            expect(b != nil && abs(b!.offsetMilliseconds - 200) < 0.001, "stage-noise path: +200 still pairs")
+        }
+
         if failed == 0 {
             print("ALL HARNESS TESTS PASSED")
         } else {

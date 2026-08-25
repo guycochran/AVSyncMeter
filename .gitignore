@@ -39,3 +39,6 @@ TestFiles/
 *.swp
 *~
 .idea/
+
+# HostHarness binary (local)
+AVSyncMeterHostTests

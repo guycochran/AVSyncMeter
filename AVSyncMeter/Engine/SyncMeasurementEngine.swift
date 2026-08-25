@@ -6,16 +6,18 @@ import Foundation
 /// `AudioPulseEvent` with timestamps already on ONE clock (CaptureClock unified
 /// seconds in the live path).
 ///
-/// Pairing: chronological 1:1 PLUS a max |offset| window. Oldest flash vs oldest
-/// pulse; they pair only if |audio − video| ≤ maxPairOffsetSeconds (default ±400 ms,
-/// enough for monitor+PA+Mitti and a +164 ms step, tight enough that a 220–350 ms
-/// ring-down replica cannot steal the next 1 Hz flash). Otherwise the older head
-/// expires unpaired. pairingWindowSeconds is how long a lone event waits.
+/// Pairing: at most one pending flash and one pending pulse. Latest beep-like
+/// pulse wins; voice/chatter is never queued. They pair only if both are present
+/// and |audio − video| ≤ maxPairOffsetSeconds (default ±400 ms, enough for
+/// monitor+PA+Mitti and a +164 ms step, tight enough that a 220–350 ms ring-down
+/// replica cannot steal the next 1 Hz flash). Voice-like pulses never pair, so
+/// extra speech in the window cannot steal. pairingWindowSeconds is how long a
+/// lone event waits.
 ///
 /// Sign: offsetMilliseconds = (audio - video) * 1000. See SyncSignConvention.
 final class SyncMeasurementEngine {
     struct Configuration {
-        var pairingWindowSeconds: Double = 1.0
+        var pairingWindowSeconds: Double = 0.40
         /// Accept a pair only if |audio − video| is inside this window.
         var maxPairOffsetSeconds: Double = 0.40
         var calibrationOffsetMilliseconds: Double = 0
@@ -31,8 +33,8 @@ final class SyncMeasurementEngine {
     private(set) var statistics = MeasurementStatistics()
     private(set) var unpairedRejected = 0
     private(set) var diagnostics: [DiagnosticEvent] = []
-    private var pendingFlashes: [VisualFlashEvent] = []
-    private var pendingPulses: [AudioPulseEvent] = []
+    private var pendingFlash: VisualFlashEvent?
+    private var pendingPulse: AudioPulseEvent?
     /// Monotonic media time of the most recently seen event, for aging.
     private var latestMediaTime: Double = 0
 
@@ -45,8 +47,8 @@ final class SyncMeasurementEngine {
         statistics.reset()
         unpairedRejected = 0
         diagnostics.removeAll()
-        pendingFlashes.removeAll()
-        pendingPulses.removeAll()
+        pendingFlash = nil
+        pendingPulse = nil
         latestMediaTime = 0
     }
 
@@ -66,8 +68,10 @@ final class SyncMeasurementEngine {
             audioThreshold: nil,
             captureFPS: nil
         ))
-        pendingFlashes.append(event)
-        pendingFlashes.sort { $0.timestampSeconds < $1.timestampSeconds }
+        if let old = pendingFlash {
+            rejectExtraFlash(old)
+        }
+        pendingFlash = event
         expireStale(now: event.timestampSeconds)
         return pairReady()
     }
@@ -88,8 +92,17 @@ final class SyncMeasurementEngine {
             audioThreshold: event.threshold,
             captureFPS: nil
         ))
-        pendingPulses.append(event)
-        pendingPulses.sort { $0.timestampSeconds < $1.timestampSeconds }
+        if !event.isBeepLike {
+            // Extra voice in the window must not steal. Never queue chatter.
+            rejectExtraPulse(event)
+            expireStale(now: event.timestampSeconds)
+            return pairReady()
+        }
+        if let old = pendingPulse {
+            // Latest beep-like wins; do not queue a second pulse.
+            rejectExtraPulse(old)
+        }
+        pendingPulse = event
         expireStale(now: event.timestampSeconds)
         return pairReady()
     }
@@ -116,22 +129,27 @@ final class SyncMeasurementEngine {
     }
 
     private func pairHeadsIfReady() -> SyncSample? {
-        guard let flash = pendingFlashes.first, let pulse = pendingPulses.first else {
+        guard let flash = pendingFlash, let pulse = pendingPulse else {
+            return nil
+        }
+        if !pulse.isBeepLike {
+            pendingPulse = nil
+            rejectExtraPulse(pulse)
             return nil
         }
         let dt = pulse.timestampSeconds - flash.timestampSeconds
         if abs(dt) <= configuration.maxPairOffsetSeconds {
-            pendingFlashes.removeFirst()
-            pendingPulses.removeFirst()
+            pendingFlash = nil
+            pendingPulse = nil
             return emitPair(flash: flash, pulse: pulse)
         }
         // Not pairable: expire the older head so a ring-down replica cannot steal
         // the next flash (1:1 chronological, extra pulses expire unpaired).
         if flash.timestampSeconds < pulse.timestampSeconds {
-            pendingFlashes.removeFirst()
+            pendingFlash = nil
             rejectUnpairedFlash(flash)
         } else {
-            pendingPulses.removeFirst()
+            pendingPulse = nil
             rejectUnpairedPulse(pulse)
         }
         return nil
@@ -183,12 +201,48 @@ final class SyncMeasurementEngine {
         let age = configuration.maxQueueAgeSeconds
         let limit = max(window, age)
 
-        let dropF = pendingFlashes.filter { now - $0.timestampSeconds > limit }
-        let dropP = pendingPulses.filter { now - $0.timestampSeconds > limit }
-        for flash in dropF { rejectUnpairedFlash(flash) }
-        for pulse in dropP { rejectUnpairedPulse(pulse) }
-        pendingFlashes.removeAll { now - $0.timestampSeconds > limit }
-        pendingPulses.removeAll { now - $0.timestampSeconds > limit }
+        if let flash = pendingFlash, now - flash.timestampSeconds > limit {
+            pendingFlash = nil
+            rejectUnpairedFlash(flash)
+        }
+        if let pulse = pendingPulse, now - pulse.timestampSeconds > limit {
+            pendingPulse = nil
+            rejectUnpairedPulse(pulse)
+        }
+    }
+
+    private func rejectExtraFlash(_ flash: VisualFlashEvent) {
+        unpairedRejected += 1
+        appendDiagnostic(DiagnosticEvent(
+            id: UUID(),
+            kind: .rejectedExtraFlash,
+            message: String(format: "Extra flash dropped (keep latest) v %.4f", flash.timestampSeconds),
+            videoPTS: flash.timestampSeconds,
+            audioPTS: nil,
+            offsetMilliseconds: nil,
+            luminance: flash.luminance,
+            visualThreshold: flash.threshold,
+            audioEnvelope: nil,
+            audioThreshold: nil,
+            captureFPS: nil
+        ))
+    }
+
+    private func rejectExtraPulse(_ pulse: AudioPulseEvent) {
+        unpairedRejected += 1
+        appendDiagnostic(DiagnosticEvent(
+            id: UUID(),
+            kind: .rejectedExtraPulse,
+            message: String(format: "Extra audio dropped (keep beep-like) a %.4f  beep %d", pulse.timestampSeconds, pulse.isBeepLike ? 1 : 0),
+            videoPTS: nil,
+            audioPTS: pulse.timestampSeconds,
+            offsetMilliseconds: nil,
+            luminance: nil,
+            visualThreshold: nil,
+            audioEnvelope: pulse.envelope,
+            audioThreshold: pulse.threshold,
+            captureFPS: nil
+        ))
     }
 
     private func rejectUnpairedFlash(_ flash: VisualFlashEvent) {

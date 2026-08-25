@@ -100,5 +100,19 @@ AE stays off. (10) NTSC capture lock stays. (9) relative A−V stays. Residual h
 
 Leftover risk: SIG beep may still be ducked by the capture session, AVAudioSession category fight, first beep clipped. HostHarness proves PCM + mix policy + pair window; it cannot play through a live AVCaptureSession.
 
+(11) landed without stage-noise rejection and was already installed on the phone. Do not keep shipping (11).
+
+## Build 12 (stage-noise rejection)
+
+Deck speech was stealing the Harkwood/SIG beep: first syllable paired, chatter between 1 Hz flashes created extra pairs, quiet re-arm fired on the next syllable.
+
+Build 12: audio detector emits **beep-like only** (sharp ~10–20 ms then quiet). Sustained voice is held then dropped without a 400 ms mask so a 1 kHz overlay can still win. After a real beep, 400 ms mask + quiet re-arm — speech stays loud, next syllable does not fire. Engine keeps at most one pending flash and one pending pulse; latest beep-like wins; voice/chatter is never queued and never pairs. Extra voice in the 400 ms window cannot steal; pair is the beep (~+80), not the first syllable. Video still uses the central region + 400 ms holdoff + re-arm toward dark, and ignores moving luma (work lights / people) that is not a white flash.
+
+Keeps (11) PCM SIG beep (mixWithOthers, ringer off, not a timestamp), 400 ms pair window, fps footer, WALK span, version on screen. AE off. (10) NTSC lock. (9) relative A−V. Residual honest. Cal 0. Sign, median, last-25, ZERO.
+
+HostHarness: voice 50/150/250 + beep +80 pairs ~+80; chatter between 1 Hz flashes does not pair; integer-30 vs 29.97 still walks until NTSC lock; +164/+200 still pair; ring-down one onset; extra flash 150 ms one event; unsettled publishes nothing.
+
+Leftover risk: a short non-beep click ~30 ms before the house beep can still 400 ms-mask it; PA-smeared beeps longer than ~40 ms may look like voice; high-band overlay vs loud speech is a heuristic. SIG may still duck under capture.
+
 Install with devicectl only — do not launch. No TestFlight.
 
