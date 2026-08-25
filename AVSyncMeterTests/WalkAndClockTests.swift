@@ -421,4 +421,63 @@ final class WalkAndClockTests: XCTestCase {
         }
         XCTAssertEqual(hits, 0)
     }
+
+    /// Live path after host-map: pts == host. Video 30.000 fps, audio 1.001 family.
+    func runAlreadyMappedNTSC(trueOffsetMs: Double, events: Int, warmupSeconds: Double = 3.0) -> [Double] {
+        let clock = CaptureClock()
+        let ntsc = 1001.0 / 1000.0
+        let videoFps = 30.0
+        let trueOffset = trueOffsetMs / 1000.0
+        let total = warmupSeconds + Double(events) + 0.5
+        var offsets: [Double] = []
+        var tV = 0.0
+        var tA = 0.0
+        var nextEvent = warmupSeconds
+        while tV <= total || tA <= total {
+            if tA > total || (tV <= total && tV <= tA) {
+                let real = tV
+                _ = clock.observe(stream: .video, ptsSeconds: tV, hostSeconds: tV)
+                tV += 1.0 / videoFps
+                if clock.allowsPublishedPairs,
+                   real + 1e-9 >= nextEvent,
+                   nextEvent < warmupSeconds + Double(events) {
+                    let i = nextEvent
+                    let vU = clock.unified(stream: .video, ptsSeconds: i)
+                    let aU = clock.unified(stream: .audio, ptsSeconds: (i + trueOffset) * ntsc)
+                    offsets.append((aU - vU) * 1000)
+                    nextEvent += 1.0
+                }
+            } else {
+                let aPTS = tA * ntsc
+                _ = clock.observe(stream: .audio, ptsSeconds: aPTS, hostSeconds: aPTS)
+                tA += 0.01
+            }
+        }
+        return offsets
+    }
+
+    func testAlreadyMapped30vs2997PlusSixDoesNotWalk() {
+        let offsets = runAlreadyMappedNTSC(trueOffsetMs: 6, events: 25)
+        XCTAssertGreaterThanOrEqual(offsets.count, 25)
+        XCTAssertEqual(MeasurementStatistics.median(offsets), 6, accuracy: 3)
+        XCTAssertLessThan(abs(MeasurementStatistics.walkMsPerEvent(offsets) ?? 999), 0.15)
+    }
+
+    func testAlreadyMapped30vs2997Minus43DoesNotWalk() {
+        let offsets = runAlreadyMappedNTSC(trueOffsetMs: -43, events: 25)
+        XCTAssertGreaterThanOrEqual(offsets.count, 25)
+        XCTAssertEqual(MeasurementStatistics.median(offsets), -43, accuracy: 3)
+        let walk = MeasurementStatistics.walkMsPerEvent(offsets) ?? 999
+        XCTAssertLessThan(abs(walk), 0.15, "walk \(walk)")
+    }
+
+    func testRawAlreadyMapped30vs2997WalksOneMsPerEvent() {
+        var raw: [Double] = []
+        let ntsc = 1001.0 / 1000.0
+        for i in 0..<25 {
+            raw.append(((Double(i) + 0.006) * ntsc - Double(i)) * 1000)
+        }
+        XCTAssertEqual(MeasurementStatistics.walkMsPerEvent(raw) ?? 0, 1.001, accuracy: 0.05)
+    }
+
 }

@@ -42,9 +42,11 @@ unified += (pts − lastPTS) × slope
 slope   = d(host) / d(pts)   // locked after ~0.6 s, frozen at settle
 ```
 
-Pairs are **not published** until both stream fits are *settled* (locked, ≥1 s span, slope stable — or force-settled after ~2.5 s). Slope **freezes** at settle so a 15–25 beep pass cannot walk. The first two detector events per stream after the gate opens are dropped; settling-period events are never queued. A PTS discontinuity (backwards jump) resets and re-locks. Unlocked hits never enter last-25 or the median. The UI shows CLOCK SETTLING / WALK — (clock settling).
+On the live path, session-mapped PTS is already host time (`pts == host`), so each stream slope freezes at 1.0 and cannot see capture-30.000 vs file-29.97. After both stream fits freeze, a second fit rate-locks **audio vs video unified times**: each stream's unified time vs observation index, divided by a snapped nominal period (integer fps for video, standard audio buffer sizes — not 29.97, or the 1000 ppm would snap away). `relativeSlope = rate_audio / rate_video`. Video then advances on a running timebase with that slope. Freeze the *fitted* A−V slope after settle (not 1.0 unless they actually match). Do not fit callback `hostNow`. The relative intercept is not applied, so a ~+6 ms phone residual is not absorbed.
 
-Audio is the high-resolution reference in the sense that onset is sample-accurate on that timebase; video frames are mapped onto the same host seconds. A 1000 ppm PTS-rate error (≈ 1 ms per 1 Hz beep) becomes a slope ≠ 1 and is removed. Residual mean sensor delay is a constant (ZERO / SET TRUE).
+Pairs are **not published** until both stream fits *and* the relative A−V fit are *settled* (locked, ≥1 s span, slope stable — or force-settled after ~2.5 s). Slope **freezes** at settle so a 15–25 beep pass cannot walk. The first two detector events per stream after the gate opens are dropped; settling-period events are never queued. A PTS discontinuity (backwards jump) resets and re-locks. Unlocked hits never enter last-25 or the median. The UI shows CLOCK SETTLING / WALK — (clock settling).
+
+Audio is the high-resolution reference in the sense that onset is sample-accurate on that timebase; video is mapped onto the same rate. A 1000 ppm relative PTS-rate error (30.000 vs 29.97, ≈ 1 ms per 1 Hz beep) becomes a relative slope ≠ 1 and is removed. Residual mean sensor delay is a constant (ZERO / SET TRUE).
 
 Diagnostics shows video/audio slope, ppm vs host, and relative A−V ppm.
 
@@ -101,7 +103,7 @@ SwiftUI (`MeasurementView`) is dark, low-decoration, venue-friendly: preview + t
 
 `AVSyncMeterTests/SyncMeasurementEngineTests.swift` and `WalkAndClockTests.swift` are the XCTest target. `HostHarness.swift` + `SyntheticRig.swift` is a macOS `@main` runner used when `xcodebuild test` cannot attach to the installed iOS 27 simulator runtime.
 
-The harness now requires a constant synthetic offset to stay flat and a +164 ms audio step to move the median by ~164 ms. Those cases did not exist when the meter shipped a walking number.
+The harness requires a constant synthetic offset to stay flat, a +164 ms audio step to move the median by ~164 ms, and an already-mapped 30.000 vs 29.97 (1000 ppm) pass whose reported offsets stay flat. Those last cases did not exist when the meter walked ~1 ms/beep on a 29.97 file at 30 fps capture.
 
 ## File map
 
@@ -109,7 +111,7 @@ The harness now requires a constant synthetic offset to stay flat and a +164 ms 
 | --- | --- |
 | `Engine/SyncTypes.swift` | Sign convention, events, snapshot |
 | `Engine/FrameRate.swift` | 23.976–60 including 1001-family rates |
-| `Engine/CaptureClock.swift` | Per-stream PTS → host timebase |
+| `Engine/CaptureClock.swift` | Per-stream PTS → host timebase + relative A−V rate-lock |
 | `Engine/VideoFlashDetector.swift` | First-edge luma flash |
 | `Engine/AudioPulseDetector.swift` | Onset with frozen noise floor |
 | `Engine/SyncMeasurementEngine.swift` | Chronological 1:1 pairing |

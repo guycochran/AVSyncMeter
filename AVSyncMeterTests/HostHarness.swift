@@ -275,16 +275,19 @@ struct HostHarness {
         // MARK: - Clock must settle before pairs are published
 
         func warmupClock(_ clock: CaptureClock, seconds: Double, audioPpm: Double = 0) {
-            var t = 0.0
-            while t <= seconds {
-                _ = clock.observe(stream: .video, ptsSeconds: t, hostSeconds: t)
-                t += 1.0 / 60.0
-            }
-            t = 0.0
+            // Interleave like live capture so the relative A−V fit sees both
+            // streams. Sequential video-then-audio never produces A-vs-V samples.
             let audioRate = 1.0 + audioPpm / 1_000_000.0
-            while t <= seconds {
-                _ = clock.observe(stream: .audio, ptsSeconds: t * audioRate, hostSeconds: t)
-                t += 0.01
+            var tV = 0.0
+            var tA = 0.0
+            while tV <= seconds || tA <= seconds {
+                if tA > seconds || (tV <= seconds && tV <= tA) {
+                    _ = clock.observe(stream: .video, ptsSeconds: tV, hostSeconds: tV)
+                    tV += 1.0 / 60.0
+                } else {
+                    _ = clock.observe(stream: .audio, ptsSeconds: tA * audioRate, hostSeconds: tA)
+                    tA += 0.01
+                }
             }
         }
 
@@ -684,6 +687,121 @@ struct HostHarness {
             }
             expect(e.snapshot().validCount == 4, "drop 2 pairs after gate opens", "valid=\(e.snapshot().validCount) published=\(published)")
             expect(e.diagnostics.contains(where: { $0.kind == .clockSettling }), "dropped post-settle events are logged, not queued")
+        }
+
+        // MARK: - Build 9: already-mapped 30.000 vs 29.97 (1000 ppm)
+
+        /// Live path after CMSyncConvertTime: pts == host for each stream.
+        /// Video timestamps advance at 30.000 fps; audio at the 29.97/1.001
+        /// family (exactly 1000 ppm: 30 / (30000/1001) = 1.001). StreamClockFit
+        /// freezes each slope at 1.0 because x == y. The relative A−V lock
+        /// has to flatten the walk. True offset is applied to *events only*,
+        /// never to every buffer (that would hide the residual in intercept).
+        func runAlreadyMappedNTSC(trueOffsetMs: Double, events: Int, warmupSeconds: Double = 3.0) -> [Double] {
+            let clock = CaptureClock()
+            let ntsc = 1001.0 / 1000.0
+            let videoFps = 30.0
+            let audioDt = 0.01
+            let trueOffset = trueOffsetMs / 1000.0
+            let total = warmupSeconds + Double(events) + 0.5
+            var offsets: [Double] = []
+            var tV = 0.0
+            var tA = 0.0
+            var nextEvent = warmupSeconds
+
+            while tV <= total || tA <= total {
+                if tA > total || (tV <= total && tV <= tA) {
+                    let real = tV
+                    let vPTS = tV
+                    _ = clock.observe(stream: .video, ptsSeconds: vPTS, hostSeconds: vPTS)
+                    tV += 1.0 / videoFps
+                    if clock.allowsPublishedPairs,
+                       real + 1e-9 >= nextEvent,
+                       nextEvent < warmupSeconds + Double(events) {
+                        let i = nextEvent
+                        let evV = i
+                        let evA = (i + trueOffset) * ntsc
+                        let vU = clock.unified(stream: .video, ptsSeconds: evV)
+                        let aU = clock.unified(stream: .audio, ptsSeconds: evA)
+                        offsets.append((aU - vU) * 1000)
+                        nextEvent += 1.0
+                    }
+                } else {
+                    let aPTS = tA * ntsc
+                    _ = clock.observe(stream: .audio, ptsSeconds: aPTS, hostSeconds: aPTS)
+                    tA += audioDt
+                }
+            }
+            return offsets
+        }
+
+        for trueMs in [6.0, -43.0] {
+            let offsets = runAlreadyMappedNTSC(trueOffsetMs: trueMs, events: 25)
+            let n = offsets.count
+            let med = n == 0 ? 0 : MeasurementStatistics.median(offsets)
+            let walk = MeasurementStatistics.walkMsPerEvent(offsets) ?? 999
+            let span = n == 0 ? 999 : (offsets.max()! - offsets.min()!)
+            expect(n >= 25, "already-mapped 30 vs 29.97 \(Int(trueMs)) ms: ≥25 s of events", "n=\(n)")
+            expect(abs(med - trueMs) < 3.0, "already-mapped 30 vs 29.97 \(Int(trueMs)) ms: median near true (do not hide residual)", String(format: "median %.3f walk %.4f n=%d first %.3f last %.3f", med, walk, n, offsets.first ?? 0, offsets.last ?? 0))
+            expect(abs(walk) < 0.15, "already-mapped 30 vs 29.97 \(Int(trueMs)) ms: walk ≪ 1 ms/event", String(format: "walk %.4f span %.3f n=%d", walk, span, n))
+            expect(span < 5.0, "already-mapped 30 vs 29.97 \(Int(trueMs)) ms: span tight", String(format: "span %.3f", span))
+        }
+
+        do {
+            // Same already-mapped 30 vs 29.97 clock. A real +164 ms step must
+            // still move the median — the relative lock is a rate, not a delay sponge.
+            let clock = CaptureClock()
+            let ntsc = 1001.0 / 1000.0
+            let videoFps = 30.0
+            let warmup = 3.0
+            let total = warmup + 30.5
+            var tV = 0.0
+            var tA = 0.0
+            var nextEvent = warmup
+            var pre: [Double] = []
+            var post: [Double] = []
+            while tV <= total || tA <= total {
+                if tA > total || (tV <= total && tV <= tA) {
+                    let real = tV
+                    _ = clock.observe(stream: .video, ptsSeconds: tV, hostSeconds: tV)
+                    tV += 1.0 / videoFps
+                    if clock.allowsPublishedPairs,
+                       real + 1e-9 >= nextEvent,
+                       nextEvent < warmup + 30.0 {
+                        let i = nextEvent
+                        let trueOffset = i < warmup + 10.0 ? 0.0 : 0.164
+                        let evV = i
+                        let evA = (i + trueOffset) * ntsc
+                        let vU = clock.unified(stream: .video, ptsSeconds: evV)
+                        let aU = clock.unified(stream: .audio, ptsSeconds: evA)
+                        let ms = (aU - vU) * 1000
+                        if i < warmup + 10.0 { pre.append(ms) } else { post.append(ms) }
+                        nextEvent += 1.0
+                    }
+                } else {
+                    let aPTS = tA * ntsc
+                    _ = clock.observe(stream: .audio, ptsSeconds: aPTS, hostSeconds: aPTS)
+                    tA += 0.01
+                }
+            }
+            let medPre = MeasurementStatistics.median(pre)
+            let medPost = MeasurementStatistics.median(post)
+            expect(pre.count >= 8 && abs(medPre) < 3, "already-mapped 30 vs 29.97 step pre: ~0 ms", String(format: "n=%d med=%.3f", pre.count, medPre))
+            expect(post.count >= 16 && abs(medPost - 164) < 3, "already-mapped 30 vs 29.97 step post: ~164 ms", String(format: "n=%d med=%.3f", post.count, medPost))
+            expect(abs((medPost - medPre) - 164) < 4, "already-mapped 30 vs 29.97: +164 ms still moves median", String(format: "delta %.3f", medPost - medPre))
+        }
+
+        do {
+            // Raw already-mapped 30 vs 29.97 still walks ~1 ms/event (the on-device bug).
+            var raw: [Double] = []
+            let ntsc = 1001.0 / 1000.0
+            for i in 0..<25 {
+                let v = Double(i)
+                let a = (Double(i) + 0.006) * ntsc
+                raw.append((a - v) * 1000)
+            }
+            let rawWalk = MeasurementStatistics.walkMsPerEvent(raw) ?? 0
+            expect(abs(rawWalk - 1.001) < 0.05, "raw already-mapped 30 vs 29.97 walk is ~1 ms/event", String(format: "walk %.4f first %.3f last %.3f", rawWalk, raw.first ?? 0, raw.last ?? 0))
         }
 
                 if failed == 0 {
