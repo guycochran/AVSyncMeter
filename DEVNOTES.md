@@ -32,6 +32,7 @@ swiftc -sdk "$(xcrun --sdk macosx --show-sdk-path)" \
   AVSyncMeter/Engine/VideoFlashDetector.swift \
   AVSyncMeter/Engine/AudioPulseDetector.swift \
   AVSyncMeter/Engine/SyncMeasurementEngine.swift \
+  AVSyncMeter/Engine/TestSignalBeep.swift \
   AVSyncMeterTests/SyntheticRig.swift \
   AVSyncMeterTests/HostHarness.swift \
   -o /tmp/AVSyncMeterHostTests && /tmp/AVSyncMeterHostTests
@@ -86,4 +87,18 @@ Leftover risk of (9) **is** the downstairs fail: capture reported 30.0 fps with 
 `CaptureManager.lockFrameRateIfPossible` used to force `CMTime(value: 1, timescale: 60)` whenever 59+ was available, and did nothing (default 30.0) when it was not. Build 10 reads the program picker: 29.97/59.94 → 60_000/1001 if 59+ is available, else 30_000/1001. Integer 30/60 pickers still use 1/60 or 1/30. `RelativeAVFit.snapVideoPeriod` now includes 1001-family periods so a true-host 29.97/59.94 capture is not treated as 1000 ppm vs 30/60. AE stays off. (9) relative rate-lock stays. Residual ~+6 ms stays honest. Sign, median, last-25, ZERO, cal 0 unchanged.
 
 HostHarness: integer-30 capture vs 29.97 events walks ~1 ms/beep until this lock is on; with NTSC lock the same constant-delay pass goes FLAT. Keep +164 step, ring-down, extra flash, unsettled empty, (9) already-mapped 1000 ppm tests. Do not install (9).
+
+## Build 11 (PCM beep, 400 ms pair window, fps footer, WALK span)
+
+On-device leftover from (10): SIG still used `AudioServicesPlaySystemSound(1104)` (silent switch mutes it); footer `Capture %.1f` showed 29.970 as 30.0; WALK went green on |walk|<0.2 even when SPAN was 32 ms.
+
+Build 11 generates a ~16 ms 1 kHz PCM beep via AVAudioPlayer. Category is playAndRecord + mixWithOthers + defaultToSpeaker (playback fallback) so it can play with the ringer off while AVCaptureSession owns audio. Flash and beep fire in the same `fire()`. The beep is **not** a measurement timestamp. SIG shows a one-line note that same-phone loopback while measuring the house injects extra AUDIOPULSE.
+
+Pair window default is **±400 ms** (monitor+PA+Mitti). Ring-down 220–350 ms still expires unpaired vs the next 1 Hz flash. +164 still pairs. Footer is `Capture %.2f fps  NTSC|integer  (picker …)`. Version `0.1.2 (11)` is on the header and Settings Info. WALK is green only if slope is flat **and** SPAN is tight (≤8 ms).
+
+AE stays off. (10) NTSC capture lock stays. (9) relative A−V stays. Residual honest. Cal 0. Sign, median, last-25, ZERO, 400 ms audio/video holdoff unchanged.
+
+Leftover risk: SIG beep may still be ducked by the capture session, AVAudioSession category fight, first beep clipped. HostHarness proves PCM + mix policy + pair window; it cannot play through a live AVCaptureSession.
+
+Install with devicectl only — do not launch. No TestFlight.
 

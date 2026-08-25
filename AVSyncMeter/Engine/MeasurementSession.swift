@@ -94,6 +94,7 @@ final class MeasurementSession: ObservableObject {
         pulseDetector.configuration.sensitivity = settings.audioSensitivity
         pulseDetector.configuration.manualThreshold = settings.manualAudioThreshold
         engine.configuration.pairingWindowSeconds = settings.pairingWindowSeconds
+        engine.configuration.maxPairOffsetSeconds = settings.pairingWindowSeconds
         engine.configuration.calibrationOffsetMilliseconds = settings.calibrationOffsetMilliseconds
         engine.configuration.stabilityThresholdMilliseconds = settings.stabilityThresholdMilliseconds
         engine.configuration.outlierMADMultiplier = settings.outlierMADMultiplier

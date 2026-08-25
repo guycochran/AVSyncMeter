@@ -109,6 +109,10 @@ struct MeasurementSnapshot: Equatable {
     /// A constant delay must sit near 0. ~1 ms/beep is a walking meter, not a house change.
     var walkMsPerEvent: Double?
 
+    static let walkFlatLimitMsPerEvent = 0.2
+    /// A few ms. Guy's −23 to −55 step had SPAN 32 with WALK +0.06 — that is not green.
+    static let walkSpanTightLimitMilliseconds = 8.0
+
     /// Last valid pair minus calibration. Table/debug only — not the main headline.
     var correctedCurrentMilliseconds: Double? {
         guard let current = currentOffsetMilliseconds else { return nil }
@@ -126,6 +130,14 @@ struct MeasurementSnapshot: Equatable {
     var spanMilliseconds: Double {
         guard validCount > 0 else { return 0 }
         return maxMilliseconds - minMilliseconds
+    }
+
+    /// WALK badge is green only if the slope is flat AND the span is tight.
+    /// |walk|<0.2 with SPAN 32 (stepped clusters that cancel) must not look green.
+    var walkLooksStable: Bool {
+        guard let walk = walkMsPerEvent, validCount >= 8 else { return false }
+        return abs(walk) < Self.walkFlatLimitMsPerEvent
+            && spanMilliseconds <= Self.walkSpanTightLimitMilliseconds
     }
 
     static let empty = MeasurementSnapshot(

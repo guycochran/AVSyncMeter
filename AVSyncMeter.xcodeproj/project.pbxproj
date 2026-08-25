@@ -26,6 +26,7 @@
 		B49504AD9ADDCDBDCE351E07 /* SyntheticRig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 532F017AE7976977DEEE3BA1 /* SyntheticRig.swift */; };
 		BBE001858A3BBE3421D17284 /* CaptureClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F7C7712C3B89BF52810F480 /* CaptureClock.swift */; };
 		C78E614C1A469B402F906DE4 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC4BD9485B0F3D045E9440B2 /* SettingsView.swift */; };
+		CE86EB6F782867E41E0630E3 /* TestSignalBeep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 027A1D45B378CEF850064DC8 /* TestSignalBeep.swift */; };
 		F32D4C7FA31723D0BF0868EB /* MeasurementStatistics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F910531B6ADE12E8441CEE /* MeasurementStatistics.swift */; };
 		F66F177D3B0DA32350A50056 /* AVSyncMeterApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFFBF5C04BFC0C34A8FFEAC6 /* AVSyncMeterApp.swift */; };
 /* End PBXBuildFile section */
@@ -41,6 +42,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		027A1D45B378CEF850064DC8 /* TestSignalBeep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSignalBeep.swift; sourceTree = "<group>"; };
 		079A43D77619BA00639F3CA5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		0853A077C817E2F165D324D3 /* WalkAndClockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkAndClockTests.swift; sourceTree = "<group>"; };
 		179415E275572376CB646119 /* FrameRate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameRate.swift; sourceTree = "<group>"; };
@@ -128,6 +130,7 @@
 				A1F910531B6ADE12E8441CEE /* MeasurementStatistics.swift */,
 				64DDAFCF915D9EBFCE638834 /* SyncMeasurementEngine.swift */,
 				AA0A49C22356D201751D7ABA /* SyncTypes.swift */,
+				027A1D45B378CEF850064DC8 /* TestSignalBeep.swift */,
 				9B0E0CD56CDB273FBBB0D3C2 /* VideoFlashDetector.swift */,
 			);
 			path = Engine;
@@ -263,6 +266,7 @@
 				C78E614C1A469B402F906DE4 /* SettingsView.swift in Sources */,
 				6811E7FC35E7BF5B7FFFB1E1 /* SyncMeasurementEngine.swift in Sources */,
 				75CA1EF196FAEB83925AECA7 /* SyncTypes.swift in Sources */,
+				CE86EB6F782867E41E0630E3 /* TestSignalBeep.swift in Sources */,
 				5081C36428299215FB85DEE4 /* TestSignalView.swift in Sources */,
 				802BA0D765B52FBF38038325 /* Theme.swift in Sources */,
 				670AAAEC0B9ED2996E054D18 /* VideoFlashDetector.swift in Sources */,
@@ -314,7 +318,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 98944N7X3Y;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -433,7 +437,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 98944N7X3Y;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;

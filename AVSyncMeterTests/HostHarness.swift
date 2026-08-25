@@ -904,6 +904,85 @@ struct HostHarness {
             expect(abs((medPost - medPre) - 164) < 4, "NTSC lock: +164 ms still moves median", String(format: "delta %.3f", medPost - medPre))
         }
 
+
+        // MARK: - Build 11: 400 ms pair window, beep PCM, WALK span, fps footer
+
+        do {
+            expect(abs(SyncMeasurementEngine.Configuration().maxPairOffsetSeconds - 0.40) < 1e-9, "pair window default is 400 ms")
+            let e = SyncMeasurementEngine()
+            let s = pair(e, tVideo: 1.0, tAudio: 1.164)
+            expect(s != nil && abs(s!.offsetMilliseconds - 164) < 0.001, "+164 ms still pairs inside 400 ms window")
+        }
+
+        do {
+            // Ring-down 220–350 ms must expire unpaired vs the next 1 Hz flash.
+            for replicaDelay in [0.220, 0.280, 0.350] {
+                let e = SyncMeasurementEngine()
+                _ = pair(e, tVideo: 1.0, tAudio: 1.006)
+                _ = e.ingestPulse(AudioPulseEvent(timestampSeconds: 1.0 + replicaDelay, envelope: 0.12, threshold: 0.05))
+                _ = pair(e, tVideo: 2.0, tAudio: 2.006)
+                let snap = e.snapshot()
+                let ms = Int(replicaDelay * 1000)
+                expect(snap.validCount == 2, "400 ms window: \(ms) ms replica does not steal next flash", "n=\(snap.validCount)")
+                expect(snap.rejectedCount >= 1, "400 ms window: \(ms) ms replica expires unpaired")
+                let offsets = snap.recentValidSamples.map(\.offsetMilliseconds)
+                expect(offsets.allSatisfy { abs($0 - 6) < 0.5 }, "400 ms window: pairs stay ~+6 ms after \(ms) ms replica", "\(offsets)")
+            }
+        }
+
+        do {
+            let samples = TestSignalBeep.pcmSamples()
+            let peak = samples.map { abs($0) }.max() ?? 0
+            let wav = TestSignalBeep.wavData()
+            let riff = String(bytes: wav.prefix(4), encoding: .ascii) ?? ""
+            let wave = String(bytes: wav.dropFirst(8).prefix(4), encoding: .ascii) ?? ""
+            expect(TestSignalBeep.durationSeconds >= 0.010 && TestSignalBeep.durationSeconds <= 0.020, "beep duration 10–20 ms", String(format: "%.4f", TestSignalBeep.durationSeconds))
+            expect(abs(TestSignalBeep.frequencyHz - 1000) < 1, "beep ~1 kHz")
+            expect(samples.count >= 441 && samples.count <= 882, "beep sample count ~10–20 ms at 44.1 kHz", "n=\(samples.count)")
+            expect(Double(peak) > 0.7, "beep is loud", String(format: "peak %.3f", Double(peak)))
+            expect(wav.count > 44 && riff == "RIFF" && wave == "WAVE", "beep WAV exists", "\(riff)\(wave) bytes=\(wav.count)")
+            expect(TestSignalBeep.sessionMixWithOthers && TestSignalBeep.sessionDefaultToSpeaker, "SIG session mixes with capture and defaults to speaker")
+            expect(TestSignalBeep.sessionCategory == "playAndRecord" || TestSignalBeep.sessionCategory == "playback", "SIG category plays with ringer off")
+            expect(!TestSignalBeep.usedAsMeasurementTimestamp, "SIG beep is not a measurement timestamp")
+        }
+
+        do {
+            // Guy's on-device (8): WALK +0.06 with SPAN 32 from a −23 to −55 step.
+            // Palindrome of -23/-55: OLS walk ~0, SPAN 32 (Guy's step that cancelled WALK).
+            let half: [Double] = [-55, -23, -55, -23, -55, -23, -55, -23]
+            let offsets = half + half.reversed()
+            let e = engine()
+            for (i, ms) in offsets.enumerated() {
+                _ = pair(e, tVideo: Double(i), tAudio: Double(i) + ms / 1000.0)
+            }
+            let snap = e.snapshot()
+            let walk = snap.walkMsPerEvent ?? 999
+            expect(abs(walk) < 0.2, "stepped clusters can cancel to |walk|<0.2", String(format: "walk %.4f span %.3f", walk, snap.spanMilliseconds))
+            expect(snap.spanMilliseconds > 20, "SPAN is huge (not a few ms)", String(format: "span %.3f", snap.spanMilliseconds))
+            expect(!snap.walkLooksStable, "WALK not green when SPAN is huge even if |walk|<0.2")
+        }
+
+        do {
+            let e = engine()
+            for i in 0..<12 {
+                _ = pair(e, tVideo: Double(i), tAudio: Double(i) + 0.006 + Double(i % 3) * 0.0002)
+            }
+            expect(e.snapshot().walkLooksStable, "WALK green when walk flat AND span tight", String(format: "walk %.4f span %.3f", e.snapshot().walkMsPerEvent ?? 999, e.snapshot().spanMilliseconds))
+        }
+
+        do {
+            let ntsc = FrameRate.captureFooter(observedFPS: 30_000.0 / 1_001.0, picker: .fps2997)
+            let integer = FrameRate.captureFooter(observedFPS: 30.0, picker: .fps2997)
+            expect(ntsc.contains("29.97") && !ntsc.contains("30.0 fps") && !ntsc.contains("30.00"), "29.97 footer is 29.97 not 30.0", ntsc)
+            expect(ntsc.contains("NTSC"), "29.97 footer labeled NTSC", ntsc)
+            expect(integer.contains("30.00") && integer.contains("integer"), "integer-30 footer is 30.00 integer", integer)
+            expect(FrameRate.captureFamily(observedFPS: 30_000.0 / 1_001.0) == "NTSC", "classify 29.97 as NTSC")
+            expect(FrameRate.captureFamily(observedFPS: 30.0) == "integer", "classify 30.00 as integer")
+            expect(FrameRate.captureFamily(observedFPS: 60_000.0 / 1_001.0) == "NTSC", "classify 59.94 as NTSC")
+            expect(FrameRate.captureFamily(observedFPS: 60.0) == "integer", "classify 60.00 as integer")
+        }
+
+
         if failed == 0 {
             print("ALL HARNESS TESTS PASSED")
         } else {

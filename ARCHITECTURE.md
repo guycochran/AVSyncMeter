@@ -73,7 +73,7 @@ No pitch detection.
 
 ## Pairing (`SyncMeasurementEngine`)
 
-Queues unmatched flashes and pulses, sorted by unified time. Oldest flash vs oldest pulse: they pair only if `|audio − video|` is inside `maxPairOffsetSeconds` (default ±250 ms). Otherwise the older head expires unpaired, so a 200–400 ms ring-down replica cannot steal the next 1 Hz flash. `pairingWindowSeconds` (default 1 s) is how long a lone event waits. No nearest-neighbour stealing, no accumulating pairing debt.
+Queues unmatched flashes and pulses, sorted by unified time. Oldest flash vs oldest pulse: they pair only if `|audio − video|` is inside `maxPairOffsetSeconds` (default ±400 ms). Otherwise the older head expires unpaired, so a 220–350 ms ring-down replica cannot steal the next 1 Hz flash. `pairingWindowSeconds` (default 400 ms) is how long a lone event waits. No nearest-neighbour stealing, no accumulating pairing debt.
 
 ```
 offsetMilliseconds = (audioUnified − videoUnified) * 1000
@@ -93,7 +93,7 @@ Never promotes one event to “the answer.” The main headline uses the median 
 
 `MeasurementSession` owns capture, both detectors, the clock, and the engine. It hops capture callbacks onto a serial measure queue, then publishes to the main thread.
 
-SwiftUI (`MeasurementView`) is dark, low-decoration, venue-friendly: preview + target, huge AUDIO EARLY/LATE + ms, recommended delay, fps/frames, stats, SYNC STABLE/UNSTABLE, WALK ms/beep, Start/Stop/Reset. Settings, Diagnostics, and a Phase 2 test signal are sheets.
+SwiftUI (`MeasurementView`) is dark, low-decoration, venue-friendly: preview + target, huge AUDIO EARLY/LATE + ms, recommended delay, fps/frames, stats, SYNC STABLE/UNSTABLE, WALK ms/beep (green only if walk is flat and SPAN is tight), Start/Stop/Reset. Capture footer is `%.2f` plus NTSC vs integer. Version string is on the header. Settings, Diagnostics, and a Phase 2 test signal (generated PCM beep, not the silent-switch click) are sheets.
 
 ## Calibration
 
@@ -103,7 +103,7 @@ SwiftUI (`MeasurementView`) is dark, low-decoration, venue-friendly: preview + t
 
 `AVSyncMeterTests/SyncMeasurementEngineTests.swift` and `WalkAndClockTests.swift` are the XCTest target. `HostHarness.swift` + `SyntheticRig.swift` is a macOS `@main` runner used when `xcodebuild test` cannot attach to the installed iOS 27 simulator runtime.
 
-The harness requires a constant synthetic offset to stay flat, a +164 ms audio step to move the median by ~164 ms, an already-mapped 30.000 vs 29.97 (1000 ppm) pass whose reported offsets stay flat, and a true-host integer-30 capture vs 29.97-file events pass that walks ~1 ms/beep until capture is locked to 30_000/1001 or 60_000/1001 (then the same constant-delay pass is flat). Integer 30 vs 29.97 content is not visible to relative A−V on unified buffers.
+The harness requires a constant synthetic offset to stay flat, a +164 ms audio step to move the median by ~164 ms, an already-mapped 30.000 vs 29.97 (1000 ppm) pass whose reported offsets stay flat, and a true-host integer-30 capture vs 29.97-file events pass that walks ~1 ms/beep until capture is locked to 30_000/1001 or 60_000/1001 (then the same constant-delay pass is flat). Integer 30 vs 29.97 content is not visible to relative A−V on unified buffers. Build 11: ±400 ms pair window still rejects 220–350 ms replicas vs the next flash; generated beep PCM exists; WALK is not green on huge SPAN; capture footer distinguishes 29.97 NTSC from integer 30.00.
 
 ## File map
 
@@ -116,6 +116,7 @@ The harness requires a constant synthetic offset to stay flat, a +164 ms audio s
 | `Engine/AudioPulseDetector.swift` | Onset with frozen noise floor |
 | `Engine/SyncMeasurementEngine.swift` | Chronological 1:1 pairing |
 | `Engine/MeasurementStatistics.swift` | Stats + MAD + walk |
+| `Engine/TestSignalBeep.swift` | Generated 1 kHz PCM / WAV for SIG (not a measurement timestamp) |
 | `Engine/AppSettings.swift` | UserDefaults |
 | `Engine/MeasurementSession.swift` | Glue (not the algorithm) |
 | `Capture/CaptureManager.swift` | Single AVCaptureSession + PTS conversion |

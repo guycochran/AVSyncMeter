@@ -28,8 +28,11 @@ struct SettingsView: View {
                         Slider(value: $settings.regionFraction, in: 0.12...0.70)
                     }
                     VStack(alignment: .leading) {
-                        Text(String(format: "Pairing window ±%.2f s", settings.pairingWindowSeconds))
-                        Slider(value: $settings.pairingWindowSeconds, in: 0.2...2.0)
+                        Text(String(format: "Pairing window ±%.0f ms", settings.pairingWindowSeconds * 1000))
+                        Slider(value: $settings.pairingWindowSeconds, in: 0.20...2.0)
+                        Text("Default 400 ms covers monitor+PA+Mitti. Ring-down 220–350 ms still expires vs the next 1 Hz flash.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -88,6 +91,8 @@ struct SettingsView: View {
                 }
 
                 Section("Info") {
+                    Text("AV Sync Meter \(AppVersion.label)")
+                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
                     Toggle("Show speed-of-sound note", isOn: $settings.showDistanceHelper)
                     Text("Sound ≈ 343 m/s ≈ 1.1 ft/ms. This app measures from the seat, including acoustic travel. Distance correction is informational and off by default. It is never auto-applied.")
                         .font(.footnote)

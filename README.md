@@ -84,6 +84,7 @@ swiftc -sdk "$(xcrun --sdk macosx --show-sdk-path)" \
   AVSyncMeter/Engine/VideoFlashDetector.swift \
   AVSyncMeter/Engine/AudioPulseDetector.swift \
   AVSyncMeter/Engine/SyncMeasurementEngine.swift \
+  AVSyncMeter/Engine/TestSignalBeep.swift \
   AVSyncMeterTests/SyntheticRig.swift \
   AVSyncMeterTests/HostHarness.swift \
   -o /tmp/AVSyncMeterHostTests
@@ -92,7 +93,7 @@ swiftc -sdk "$(xcrun --sdk macosx --show-sdk-path)" \
 
 ## Settings
 
-Frame rate, flash/audio sensitivity, central target size, pairing window (±1 s default), optional manual thresholds, stability threshold, outlier MAD k, and a persisted known-correction (calibration). Default calibration is **0 ms = none applied**, not “sensor latency is zero”.
+Frame rate, flash/audio sensitivity, central target size, pairing window (±400 ms default), optional manual thresholds, stability threshold, outlier MAD k, and a persisted known-correction (calibration). Default calibration is **0 ms = none applied**, not “sensor latency is zero”.
 
 Distance helper (343 m/s, ~1.1 ft/ms) is **off by default** and never subtracted from the offset.
 
@@ -102,7 +103,7 @@ See [ACCURACY.md](ACCURACY.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
 - Phone ISP, exposure, rolling shutter, mic processing, AGC, and buffer size all add uncertainty. Capture timestamps are unified onto one host clock; leftover bias from unlocked *source* clocks (separate video vs audio interfaces) can remain in the median. A 1 ms/beep walk on a constant delay is a meter bug, not house truth.
 - Simulator cannot perform a live optical/acoustic measurement.
-- In-app test signal is a simple 1 Hz white flash + system click (Phase 2). Prefer a timeline-generated pattern for real work.
+- In-app test signal is a simple 1 Hz white flash + generated PCM beep (Phase 2). Same-phone loopback while measuring the house injects extra AUDIOPULSE. Prefer a timeline-generated pattern for real work.
 - Do not treat a single pair as truth. Use repeats and the median.
 
 ## External validation

@@ -55,9 +55,14 @@ struct MeasurementView: View {
 
     private var header: some View {
         HStack {
-            Text("AV SYNC METER")
-                .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                .foregroundStyle(VenueTheme.dim)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("AV SYNC METER")
+                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(VenueTheme.dim)
+                Text(AppVersion.label)
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(VenueTheme.dim)
+            }
             Spacer()
             Button("DIAG") { showDiagnostics = true }
             Button("SET") { showSettings = true }
@@ -164,10 +169,10 @@ struct MeasurementView: View {
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
                     .foregroundStyle(VenueTheme.meter)
             } else if let walk = session.snapshot.walkMsPerEvent {
-                let flat = abs(walk) < 0.2
+                let green = session.snapshot.walkLooksStable
                 Text(String(format: "WALK %+.2f ms/beep", walk))
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundStyle(flat ? VenueTheme.stable : VenueTheme.unstable)
+                    .foregroundStyle(green ? VenueTheme.stable : VenueTheme.unstable)
             } else {
                 Text("WALK — (need ≥8)")
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
@@ -340,7 +345,7 @@ struct MeasurementView: View {
             meter(label: "LUMA", value: session.liveLuminance)
             meter(label: "MIC ", value: min(1, session.liveAudioLevel * 4))
             if session.capture.observedVideoFPS > 0 {
-                Text(String(format: "Capture %.1f fps", session.capture.observedVideoFPS))
+                Text(FrameRate.captureFooter(observedFPS: session.capture.observedVideoFPS, picker: settings.frameRate))
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(VenueTheme.dim)
             }

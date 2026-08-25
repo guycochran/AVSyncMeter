@@ -7,17 +7,17 @@ import Foundation
 /// seconds in the live path).
 ///
 /// Pairing: chronological 1:1 PLUS a max |offset| window. Oldest flash vs oldest
-/// pulse; they pair only if |audio − video| ≤ maxPairOffsetSeconds (default ±250 ms,
-/// enough for a +164 ms step, tight enough that a 200–400 ms ring-down replica
-/// cannot steal the next 1 Hz flash). Otherwise the older head expires unpaired.
-/// pairingWindowSeconds is how long a lone event waits before aging out.
+/// pulse; they pair only if |audio − video| ≤ maxPairOffsetSeconds (default ±400 ms,
+/// enough for monitor+PA+Mitti and a +164 ms step, tight enough that a 220–350 ms
+/// ring-down replica cannot steal the next 1 Hz flash). Otherwise the older head
+/// expires unpaired. pairingWindowSeconds is how long a lone event waits.
 ///
 /// Sign: offsetMilliseconds = (audio - video) * 1000. See SyncSignConvention.
 final class SyncMeasurementEngine {
     struct Configuration {
         var pairingWindowSeconds: Double = 1.0
         /// Accept a pair only if |audio − video| is inside this window.
-        var maxPairOffsetSeconds: Double = 0.25
+        var maxPairOffsetSeconds: Double = 0.40
         var calibrationOffsetMilliseconds: Double = 0
         var stabilityThresholdMilliseconds: Double = 8
         var outlierMADMultiplier: Double = 3.5

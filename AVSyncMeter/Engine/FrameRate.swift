@@ -54,6 +54,33 @@ enum FrameRate: String, CaseIterable, Identifiable, Codable, Hashable {
         (milliseconds / 1_000.0) * framesPerSecond
     }
 
+    /// Classify an observed capture rate as NTSC 1001-family vs integer 24/25/30/50/60.
+    /// Nearest-neighbour so 29.970 and 30.000 stay distinct (they are only 0.03 fps apart).
+    static func captureFamily(observedFPS: Double) -> String {
+        let candidates: [(Double, String)] = [
+            (24_000.0 / 1_001.0, "NTSC"),
+            (30_000.0 / 1_001.0, "NTSC"),
+            (60_000.0 / 1_001.0, "NTSC"),
+            (24.0, "integer"),
+            (25.0, "integer"),
+            (30.0, "integer"),
+            (50.0, "integer"),
+            (60.0, "integer"),
+        ]
+        guard observedFPS.isFinite, observedFPS > 1 else { return "—" }
+        let best = candidates.min(by: { abs($0.0 - observedFPS) < abs($1.0 - observedFPS) })!
+        if abs(best.0 - observedFPS) > 1.0 {
+            return abs(observedFPS - observedFPS.rounded()) < 0.05 ? "integer" : "NTSC"
+        }
+        return best.1
+    }
+
+    /// Footer: `Capture 29.97 fps  NTSC  (picker 29.97)`. %.1f hid 29.970 as 30.0.
+    static func captureFooter(observedFPS: Double, picker: FrameRate) -> String {
+        let family = captureFamily(observedFPS: observedFPS)
+        return String(format: "Capture %.2f fps  %@  (picker %@)", observedFPS, family, picker.displayName)
+    }
+
     /// Capture duration matching this picker. Prefer 60_000/1001 when the picker
     /// is 29.97/59.94 and 59+ is available; 30_000/1001 if 60 is not used.
     /// Integer 30/60 pickers keep integer 1/60 or 1/30.

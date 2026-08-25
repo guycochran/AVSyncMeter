@@ -1,10 +1,11 @@
 import SwiftUI
-import AudioToolbox
+import AVFoundation
 
 /// Phase 1/2 original test signal: dark field, large white flash, matching short beep, 1 Hz.
 /// This is not a third-party pattern and is not a substitute for a house-sync generator.
 struct TestSignalView: View {
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var beep = TestSignalBeepPlayer()
     @State private var running = false
     @State private var flashOn = false
     @State private var counter = 0
@@ -31,6 +32,12 @@ struct TestSignalView: View {
                 Text(running ? "1 Hz flash + pulse" : "Stopped")
                     .font(.system(size: 13, design: .monospaced))
                     .foregroundStyle(flashOn ? Color.black.opacity(0.7) : Color.white.opacity(0.6))
+                Text("Same-phone loopback while measuring the house injects extra AUDIOPULSE.")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(flashOn ? Color.black.opacity(0.7) : Color.white.opacity(0.65))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 8)
                 Spacer()
                 Picker("fps", selection: $fps) {
                     ForEach(FrameRate.allCases) { Text($0.displayName).tag($0) }
@@ -45,12 +52,14 @@ struct TestSignalView: View {
                 .foregroundStyle(flashOn ? Color.black : Color.white)
             }
         }
+        .onAppear { beep.prepare() }
         .onDisappear { stop() }
         .preferredColorScheme(.dark)
     }
 
     private func start() {
         running = true
+        beep.prepare()
         fire()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             fire()
@@ -62,19 +71,69 @@ struct TestSignalView: View {
         flashOn = false
         timer?.invalidate()
         timer = nil
+        beep.stop()
     }
 
     private func fire() {
         counter += 1
         flashOn = true
-        playClick()
+        beep.play()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             flashOn = false
         }
     }
+}
 
-    private func playClick() {
-        // Short system click. Not used as a measurement timestamp source.
-        AudioServicesPlaySystemSound(1104)
+/// Generated PCM beep via AVAudioPlayer. Session category plays with the ringer
+/// off and mixes with a running capture session. The play() call is not a
+/// measurement timestamp.
+final class TestSignalBeepPlayer: ObservableObject {
+    private var player: AVAudioPlayer?
+
+    func prepare() {
+        activateSession()
+        if player == nil {
+            do {
+                let p = try AVAudioPlayer(data: TestSignalBeep.wavData())
+                p.volume = 1
+                p.prepareToPlay()
+                player = p
+            } catch {
+                player = nil
+            }
+        } else {
+            player?.prepareToPlay()
+        }
+    }
+
+    func play() {
+        activateSession()
+        if player == nil {
+            prepare()
+        }
+        player?.currentTime = 0
+        player?.play()
+    }
+
+    func stop() {
+        player?.stop()
+        player?.currentTime = 0
+    }
+
+    /// playAndRecord + mixWithOthers + defaultToSpeaker so SIG can beep while
+    /// AVCaptureSession owns the mic. Fallback: playback + mixWithOthers.
+    private func activateSession() {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(
+                .playAndRecord,
+                mode: .default,
+                options: [.mixWithOthers, .defaultToSpeaker]
+            )
+            try session.setActive(true)
+        } catch {
+            try? session.setCategory(.playback, options: [.mixWithOthers])
+            try? session.setActive(true)
+        }
     }
 }
