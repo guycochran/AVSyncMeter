@@ -163,4 +163,183 @@ final class WalkAndClockTests: XCTestCase {
         XCTAssertEqual(MeasurementStatistics.median(offsets), 6, accuracy: 3)
         XCTAssertLessThan(abs(walk), 0.15)
     }
+
+    func testCallbackJitterDoesNotWalkAfterFreeze() {
+        let clock = CaptureClock()
+        var t = 0.0
+        while t <= 3.0 {
+            _ = clock.observe(stream: .video, ptsSeconds: t, hostSeconds: t)
+            t += 1.0 / 60.0
+        }
+        t = 0.0
+        while t <= 3.0 {
+            _ = clock.observe(stream: .audio, ptsSeconds: t, hostSeconds: t)
+            t += 0.01
+        }
+        XCTAssertTrue(clock.allowsPublishedPairs)
+        var offsets: [Double] = []
+        for i in 0..<25 {
+            let hostV = 3.0 + Double(i)
+            let hostA = hostV + 0.006
+            let jitterV = 0.012 * sin(Double(i) * 2.7 + 0.3)
+            let jitterA = 0.010 * sin(Double(i) * 3.1 + 1.1)
+            _ = clock.observe(stream: .video, ptsSeconds: hostV, hostSeconds: hostV + jitterV)
+            _ = clock.observe(stream: .audio, ptsSeconds: hostA, hostSeconds: hostA + jitterA)
+            let vU = clock.unified(stream: .video, ptsSeconds: hostV)
+            let aU = clock.unified(stream: .audio, ptsSeconds: hostA)
+            offsets.append((aU - vU) * 1000)
+        }
+        let walk = MeasurementStatistics.walkMsPerEvent(offsets) ?? 999
+        XCTAssertEqual(MeasurementStatistics.median(offsets), 6, accuracy: 3)
+        XCTAssertLessThan(abs(walk), 0.15)
+    }
+
+    func testLongVideoFlashIsOneEvent() {
+        let d = VideoFlashDetector()
+        var hits = 0
+        for i in 0..<30 {
+            if d.processLuminance(0.05, timestampSeconds: Double(i) / 60.0) != nil { hits += 1 }
+        }
+        for f in 0..<20 {
+            if d.processLuminance(0.90, timestampSeconds: 1.0 + Double(f) / 60.0) != nil { hits += 1 }
+        }
+        XCTAssertEqual(hits, 1)
+    }
+
+    func testExtraFlash150msDoesNotStealNextPulse() {
+        let d = VideoFlashDetector()
+        let fps = 60.0
+        func luma(_ t: Double) -> Double {
+            for p in [1.0, 1.15, 2.0] {
+                if abs(t - p) < 0.5 / fps { return 0.90 }
+            }
+            return 0.05
+        }
+        var events: [VisualFlashEvent] = []
+        var t = 0.0
+        while t < 2.6 {
+            if let ev = d.processLuminance(luma(t), timestampSeconds: t) {
+                events.append(ev)
+            }
+            t += 1.0 / fps
+        }
+        XCTAssertEqual(events.count, 2)
+        XCTAssertEqual(events[0].timestampSeconds, 1.0, accuracy: 0.02)
+        XCTAssertEqual(events[1].timestampSeconds, 2.0, accuracy: 0.02)
+        let e = SyncMeasurementEngine(configuration: .init(pairingWindowSeconds: 1.0))
+        _ = e.ingestFlash(events[0])
+        _ = e.ingestPulse(AudioPulseEvent(timestampSeconds: 1.006, envelope: 0.4, threshold: 0.1))
+        _ = e.ingestFlash(events[1])
+        _ = e.ingestPulse(AudioPulseEvent(timestampSeconds: 2.006, envelope: 0.4, threshold: 0.1))
+        XCTAssertEqual(e.snapshot().validCount, 2)
+        XCTAssertTrue(e.snapshot().recentValidSamples.allSatisfy { abs($0.offsetMilliseconds - 6) < 1 })
+    }
+
+    func testPTSDiscontinuityDropsUntilResettled() {
+        let clock = CaptureClock()
+        var t = 0.0
+        while t <= 3.0 {
+            _ = clock.observe(stream: .video, ptsSeconds: t, hostSeconds: t)
+            t += 1.0 / 60.0
+        }
+        t = 0.0
+        while t <= 3.0 {
+            _ = clock.observe(stream: .audio, ptsSeconds: t, hostSeconds: t)
+            t += 0.01
+        }
+        XCTAssertTrue(clock.allowsPublishedPairs)
+        _ = clock.observe(stream: .video, ptsSeconds: 0.05, hostSeconds: 0.05)
+        _ = clock.observe(stream: .audio, ptsSeconds: 0.05, hostSeconds: 0.05)
+        XCTAssertFalse(clock.allowsPublishedPairs)
+        t = 0.0
+        while t <= 3.0 {
+            _ = clock.observe(stream: .video, ptsSeconds: t, hostSeconds: t)
+            t += 1.0 / 60.0
+        }
+        t = 0.0
+        while t <= 3.0 {
+            _ = clock.observe(stream: .audio, ptsSeconds: t, hostSeconds: t)
+            t += 0.01
+        }
+        XCTAssertTrue(clock.allowsPublishedPairs)
+        var offsets: [Double] = []
+        for i in 0..<12 {
+            let hostV = 3.0 + Double(i)
+            let hostA = hostV + 0.006
+            _ = clock.observe(stream: .video, ptsSeconds: hostV, hostSeconds: hostV)
+            _ = clock.observe(stream: .audio, ptsSeconds: hostA, hostSeconds: hostA)
+            offsets.append((clock.unified(stream: .audio, ptsSeconds: hostA) - clock.unified(stream: .video, ptsSeconds: hostV)) * 1000)
+        }
+        XCTAssertEqual(MeasurementStatistics.median(offsets), 6, accuracy: 3)
+        XCTAssertLessThan(abs(MeasurementStatistics.walkMsPerEvent(offsets) ?? 999), 0.15)
+    }
+
+    func testTwentyFiveSecondPlusSixStaysFlatAfterFreeze() {
+        let clock = CaptureClock()
+        var t = 0.0
+        while t <= 3.0 {
+            _ = clock.observe(stream: .video, ptsSeconds: t, hostSeconds: t)
+            t += 1.0 / 60.0
+        }
+        t = 0.0
+        while t <= 3.0 {
+            _ = clock.observe(stream: .audio, ptsSeconds: t, hostSeconds: t)
+            t += 0.01
+        }
+        var offsets: [Double] = []
+        for i in 0..<25 {
+            let hostV = 3.0 + Double(i)
+            let hostA = hostV + 0.006
+            _ = clock.observe(stream: .video, ptsSeconds: hostV, hostSeconds: hostV)
+            _ = clock.observe(stream: .audio, ptsSeconds: hostA, hostSeconds: hostA)
+            offsets.append((clock.unified(stream: .audio, ptsSeconds: hostA) - clock.unified(stream: .video, ptsSeconds: hostV)) * 1000)
+        }
+        XCTAssertEqual(offsets.count, 25)
+        XCTAssertEqual(MeasurementStatistics.median(offsets), 6, accuracy: 3)
+        XCTAssertLessThan(abs(MeasurementStatistics.walkMsPerEvent(offsets) ?? 999), 0.15)
+    }
+
+    func testForceSettleAfterChatter() {
+        let clock = CaptureClock()
+        var t = 0.0
+        while t <= 2.7 {
+            let jv = 0.008 * sin(t * 47.0)
+            let ja = 0.007 * sin(t * 53.0 + 0.8)
+            _ = clock.observe(stream: .video, ptsSeconds: t, hostSeconds: t + jv)
+            _ = clock.observe(stream: .audio, ptsSeconds: t, hostSeconds: t + ja)
+            t += 1.0 / 60.0
+        }
+        XCTAssertTrue(clock.snapshot().settled)
+        XCTAssertTrue(clock.allowsPublishedPairs)
+    }
+
+    func testDropTwoPairsAfterGateOpens() {
+        let clock = CaptureClock()
+        var t = 0.0
+        while t <= 3.0 {
+            _ = clock.observe(stream: .video, ptsSeconds: t, hostSeconds: t)
+            t += 1.0 / 60.0
+        }
+        t = 0.0
+        while t <= 3.0 {
+            _ = clock.observe(stream: .audio, ptsSeconds: t, hostSeconds: t)
+            t += 0.01
+        }
+        let e = SyncMeasurementEngine(configuration: .init(pairingWindowSeconds: 1.0))
+        for i in 0..<6 {
+            let tV = 3.0 + Double(i)
+            let tA = tV + 0.006
+            if clock.acceptDetectedEvent(stream: .video) {
+                _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: tV, luminance: 0.8, threshold: 0.1))
+            } else {
+                e.noteHeldForClock(flash: VisualFlashEvent(timestampSeconds: tV, luminance: 0.8, threshold: 0.1), pulse: nil)
+            }
+            if clock.acceptDetectedEvent(stream: .audio) {
+                _ = e.ingestPulse(AudioPulseEvent(timestampSeconds: tA, envelope: 0.4, threshold: 0.1))
+            } else {
+                e.noteHeldForClock(flash: nil, pulse: AudioPulseEvent(timestampSeconds: tA, envelope: 0.4, threshold: 0.1))
+            }
+        }
+        XCTAssertEqual(e.snapshot().validCount, 4)
+    }
 }

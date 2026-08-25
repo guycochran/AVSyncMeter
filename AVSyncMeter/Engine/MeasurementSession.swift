@@ -174,15 +174,16 @@ final class MeasurementSession: ObservableObject {
 
     private func handleVideo(_ buffer: CMSampleBuffer) {
         guard let image = CMSampleBufferGetImageBuffer(buffer) else { return }
-        let host = CaptureManager.hostNowSeconds()
         let pts = CaptureManager.hostMappedPTS(sampleBuffer: buffer, session: capture.session)
             ?? CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(buffer))
-        guard pts.isFinite, host.isFinite else { return }
+        guard pts.isFinite else { return }
         measureQueue.async { [weak self] in
             guard let self else { return }
-            let unified = self.captureClock.observe(stream: .video, ptsSeconds: pts, hostSeconds: host)
+            // Session-mapped PTS is already host time. Do not fit against
+            // callback hostNow — that double map jitters the slope.
+            let unified = self.captureClock.observe(stream: .video, ptsSeconds: pts, hostSeconds: pts)
             if let flash = self.flashDetector.processPixelBuffer(image, timestampSeconds: unified) {
-                if self.captureClock.allowsPublishedPairs {
+                if self.captureClock.acceptDetectedEvent(stream: .video) {
                     _ = self.engine.ingestFlash(flash)
                 } else {
                     self.engine.noteHeldForClock(flash: flash, pulse: nil)
@@ -194,15 +195,14 @@ final class MeasurementSession: ObservableObject {
     }
 
     private func handleAudio(_ buffer: CMSampleBuffer) {
-        let host = CaptureManager.hostNowSeconds()
         let pts = CaptureManager.hostMappedPTS(sampleBuffer: buffer, session: capture.session)
             ?? CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(buffer))
-        guard pts.isFinite, host.isFinite else { return }
+        guard pts.isFinite else { return }
         measureQueue.async { [weak self] in
             guard let self else { return }
-            let unifiedStart = self.captureClock.observe(stream: .audio, ptsSeconds: pts, hostSeconds: host)
+            let unifiedStart = self.captureClock.observe(stream: .audio, ptsSeconds: pts, hostSeconds: pts)
             if let pulse = self.pulseDetector.processSampleBuffer(buffer, bufferStartOverride: unifiedStart) {
-                if self.captureClock.allowsPublishedPairs {
+                if self.captureClock.acceptDetectedEvent(stream: .audio) {
                     _ = self.engine.ingestPulse(pulse)
                 } else {
                     self.engine.noteHeldForClock(flash: nil, pulse: pulse)

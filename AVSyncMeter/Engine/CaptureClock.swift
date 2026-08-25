@@ -5,9 +5,12 @@ import Foundation
 ///
 /// Common timeline: a running timebase per stream. Each buffer observation
 /// advances `unified += (pts − lastPTS) × slope`, where `slope` is
-/// d(host)/d(pts) estimated from host-clock arrivals. Audio and video
-/// therefore share host seconds even if their PTS clocks run 1000 ppm apart
-/// (the NTSC 1000/1001 family, unlocked I/O crystals, frame_index/30 vs wall).
+/// d(host)/d(pts) estimated from a *stable* host clock — never from
+/// `CaptureManager.hostNowSeconds()` (callback arrival). The live path
+/// already has session-mapped PTS on the host clock via `CMSyncConvertTime`;
+/// that mapped PTS is both `ptsSeconds` and `hostSeconds`. Fitting it against
+/// callback hostNow is a double map: jitter keeps the slope from settling
+/// and can walk a constant delay.
 ///
 /// Origins stay in the PTS domain (no callback-latency intercept), so a
 /// constant true offset stays a constant. Residual mean sensor delay is a
@@ -16,17 +19,29 @@ import Foundation
 /// Prefer this unified time for pairing. Raw PTS subtraction across streams
 /// is how the meter used to walk ~1 ms per 1 Hz beep.
 ///
-/// Do not publish paired offsets until `settled`. While the slope is still
-/// blending from 1.0 toward the estimate, unified A−V is garbage even if
-/// `locked` has just become true.
+/// Do not publish paired offsets until `settled`. Slope freezes at settle
+/// (natural or force after ~2.5 s). The first two detector events per stream
+/// after the gate opens are dropped so a late/forced settle cannot publish
+/// garbage. Discontinuity (PTS going backwards) resets and re-locks.
 struct StreamClockFit: Equatable {
+    static let lockMinSpanSeconds = 0.6
+    static let settleMinSpanSeconds = 1.0
+    static let settleMinObservations = 24
+    static let settleStableUpdates = 3
+    static let forceSettleSpanSeconds = 2.5
+    static let forceSettleMinObservations = 8
+    static let postSettleDrops = 2
+
     /// host_seconds per PTS_second. 1.0 means PTS already tracks host.
     private(set) var slope: Double = 1
     private(set) var observationCount: Int = 0
     private(set) var spanSeconds: Double = 0
     private(set) var locked: Bool = false
-    /// Locked, enough samples on this stream, and slope no longer jumping.
+    /// Locked, enough samples on this stream, and slope no longer jumping
+    /// — or force-settled after `forceSettleSpanSeconds`. Slope is frozen.
     private(set) var settled: Bool = false
+    /// Detector events still to drop after the gate opens (per stream).
+    private(set) var warmupDropsRemaining: Int = 0
 
     private var lastPTS: Double?
     private var lastUnified: Double?
@@ -47,6 +62,7 @@ struct StreamClockFit: Equatable {
         spanSeconds = 0
         locked = false
         settled = false
+        warmupDropsRemaining = 0
         lastPTS = nil
         lastUnified = nil
         firstPTS = nil
@@ -70,7 +86,12 @@ struct StreamClockFit: Equatable {
             // Discontinuity (session restart, device clock jump). Re-lock.
             reset()
         }
-        updateSlope(ptsSeconds: ptsSeconds, hostSeconds: hostSeconds)
+        // Freeze the slope once settled. A 4 s half-life blend after lock is
+        // how a 15–25 beep pass still walked. HostSeconds after freeze is
+        // ignored so callback jitter cannot walk a frozen fit.
+        if !settled {
+            updateSlope(ptsSeconds: ptsSeconds, hostSeconds: hostSeconds)
+        }
 
         let unified: Double
         if let lastPTS, let lastUnified {
@@ -106,11 +127,31 @@ struct StreamClockFit: Equatable {
         return (1.0 / slope - 1.0) * 1_000_000.0
     }
 
+    /// Live path: after both streams are settled, drop the first couple of
+    /// detector events so a just-opened (or force-opened) gate cannot publish
+    /// the first garbage pair. Settling-period events are never queued.
+    mutating func acceptDetectedEvent() -> Bool {
+        guard settled else { return false }
+        if warmupDropsRemaining > 0 {
+            warmupDropsRemaining -= 1
+            return false
+        }
+        return true
+    }
+
     private mutating func refreshSettled() {
-        settled = locked
-            && stableUpdateCount >= 3
-            && spanSeconds >= 1.0
-            && observationCount >= 24
+        if settled { return }
+        let natural = locked
+            && stableUpdateCount >= Self.settleStableUpdates
+            && spanSeconds >= Self.settleMinSpanSeconds
+            && observationCount >= Self.settleMinObservations
+        let forced = spanSeconds >= Self.forceSettleSpanSeconds
+            && observationCount >= Self.forceSettleMinObservations
+        if natural || forced {
+            settled = true
+            locked = true
+            warmupDropsRemaining = Self.postSettleDrops
+        }
     }
 
     private mutating func updateSlope(ptsSeconds: Double, hostSeconds: Double) {
@@ -121,7 +162,7 @@ struct StreamClockFit: Equatable {
         guard let firstPTS, let firstHost else { return }
 
         let dt = max(0, (lastHost.map { hostSeconds - $0 } ?? 0))
-        // ~4 s half-life so a 25 s pass can still re-estimate, but not chatter.
+        // ~4 s half-life while blending toward lock. Frozen after settle.
         let decay = dt > 0 ? pow(0.5, dt / 4.0) : 1.0
         wSum *= decay
         wX *= decay
@@ -139,7 +180,7 @@ struct StreamClockFit: Equatable {
 
         let det = wSum * wXX - wX * wX
         // Need real span so a burst of same-time samples cannot invent a rate.
-        guard det > 1e-6, wSum >= 12, spanSeconds >= 0.6 else { return }
+        guard det > 1e-6, wSum >= 12, spanSeconds >= Self.lockMinSpanSeconds else { return }
         let estimated = (wSum * wXY - wX * wY) / det
         guard estimated > 0.95, estimated < 1.05 else { return }
         // Blend so lock does not jump a 25 s origin in one shot.
@@ -208,8 +249,21 @@ final class CaptureClock {
         }
     }
 
-    /// Live path: do not ingest pairs until both stream fits are settled.
+    /// Live path: both fits settled. Detector events still go through
+    /// `acceptDetectedEvent` so the first two per stream after the gate are dropped.
     var allowsPublishedPairs: Bool { snapshot().settled }
+
+    /// Call when a detector fired. Returns whether to ingest. Requires both
+    /// streams settled; decrements that stream's post-settle drop count.
+    func acceptDetectedEvent(stream: Stream) -> Bool {
+        guard snapshot().settled else { return false }
+        switch stream {
+        case .video:
+            return videoFit.acceptDetectedEvent()
+        case .audio:
+            return audioFit.acceptDetectedEvent()
+        }
+    }
 
     func snapshot() -> ClockSnapshot {
         let vs = videoFit.slope

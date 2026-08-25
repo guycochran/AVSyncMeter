@@ -396,7 +396,200 @@ struct HostHarness {
             expect(span < 5.0, "after lock span tight", String(format: "span %.3f", span))
         }
 
-        if failed == 0 {
+        // MARK: - Build 7: freeze, holdoff, discontinuity, force-settle
+
+        do {
+            // Session-mapped PTS is already host time. Callback hostNow jitter
+            // must not be the slope-fit target; after freeze it also must not
+            // walk a constant offset even if someone still passes it.
+            let clock = CaptureClock()
+            var t = 0.0
+            while t <= 3.0 {
+                _ = clock.observe(stream: .video, ptsSeconds: t, hostSeconds: t)
+                t += 1.0 / 60.0
+            }
+            t = 0.0
+            while t <= 3.0 {
+                _ = clock.observe(stream: .audio, ptsSeconds: t, hostSeconds: t)
+                t += 0.01
+            }
+            expect(clock.allowsPublishedPairs, "jitter test: settled before freeze window")
+            var offsets: [Double] = []
+            for i in 0..<25 {
+                let hostV = 3.0 + Double(i)
+                let hostA = hostV + 0.006
+                let jitterV = 0.012 * sin(Double(i) * 2.7 + 0.3)
+                let jitterA = 0.010 * sin(Double(i) * 3.1 + 1.1)
+                _ = clock.observe(stream: .video, ptsSeconds: hostV, hostSeconds: hostV + jitterV)
+                _ = clock.observe(stream: .audio, ptsSeconds: hostA, hostSeconds: hostA + jitterA)
+                let vU = clock.unified(stream: .video, ptsSeconds: hostV)
+                let aU = clock.unified(stream: .audio, ptsSeconds: hostA)
+                offsets.append((aU - vU) * 1000)
+            }
+            let med = MeasurementStatistics.median(offsets)
+            let walk = MeasurementStatistics.walkMsPerEvent(offsets) ?? 999
+            let span = (offsets.max() ?? 0) - (offsets.min() ?? 0)
+            expect(offsets.count == 25, "callback-jitter: 25 events", "n=\(offsets.count)")
+            expect(abs(med - 6) < 3.0, "callback-jitter hostNow does not walk unified offset", String(format: "med %.3f walk %.4f span %.3f", med, walk, span))
+            expect(abs(walk) < 0.15, "callback-jitter walk ≪ 1 ms/event", String(format: "walk %.4f", walk))
+            expect(span < 5.0, "callback-jitter span tight", String(format: "span %.3f", span))
+        }
+
+        do {
+            let d = VideoFlashDetector()
+            var hits = 0
+            for i in 0..<30 {
+                if d.processLuminance(0.05, timestampSeconds: Double(i) / 60.0) != nil { hits += 1 }
+            }
+            for f in 0..<20 {
+                let t = 1.0 + Double(f) / 60.0
+                if d.processLuminance(0.90, timestampSeconds: t) != nil { hits += 1 }
+            }
+            expect(hits == 1, "long video flash (20 frames at 60 fps) is one event", "hits=\(hits)")
+        }
+
+        do {
+            let d = VideoFlashDetector()
+            let e = engine()
+            let fps = 60.0
+            func luma(_ t: Double) -> Double {
+                for p in [1.0, 1.15, 2.0] {
+                    if abs(t - p) < 0.5 / fps { return 0.90 }
+                }
+                return 0.05
+            }
+            var events: [VisualFlashEvent] = []
+            var t = 0.0
+            while t < 2.6 {
+                if let ev = d.processLuminance(luma(t), timestampSeconds: t) {
+                    events.append(ev)
+                }
+                t += 1.0 / fps
+            }
+            expect(events.count == 2, "extra flash ~150 ms later is not a second event", "n=\(events.count) times=\(events.map { String(format: "%.3f", $0.timestampSeconds) })")
+            if events.count == 2 {
+                expect(abs(events[0].timestampSeconds - 1.0) < 0.02, "first flash at 1.0 s", String(format: "%.4f", events[0].timestampSeconds))
+                expect(abs(events[1].timestampSeconds - 2.0) < 0.02, "second flash at 2.0 s not 1.15", String(format: "%.4f", events[1].timestampSeconds))
+                _ = e.ingestFlash(events[0])
+                _ = e.ingestPulse(AudioPulseEvent(timestampSeconds: 1.006, envelope: 0.4, threshold: 0.1))
+                _ = e.ingestFlash(events[1])
+                _ = e.ingestPulse(AudioPulseEvent(timestampSeconds: 2.006, envelope: 0.4, threshold: 0.1))
+                let snap = e.snapshot()
+                expect(snap.validCount == 2, "extra flash ~150 ms later does not steal the next pulse", "n=\(snap.validCount)")
+                let offs = snap.recentValidSamples.map(\.offsetMilliseconds)
+                expect(offs.allSatisfy { abs($0 - 6) < 1.0 }, "stolen-pulse pairs stay ~+6 ms", "\(offs)")
+            }
+        }
+
+        do {
+            let clock = CaptureClock()
+            warmupClock(clock, seconds: 3.0)
+            expect(clock.allowsPublishedPairs, "discontinuity: settled before jump")
+            var before: [Double] = []
+            for i in 0..<4 {
+                let hostV = 3.0 + Double(i)
+                let hostA = hostV + 0.006
+                _ = clock.observe(stream: .video, ptsSeconds: hostV, hostSeconds: hostV)
+                _ = clock.observe(stream: .audio, ptsSeconds: hostA, hostSeconds: hostA)
+                let vU = clock.unified(stream: .video, ptsSeconds: hostV)
+                let aU = clock.unified(stream: .audio, ptsSeconds: hostA)
+                before.append((aU - vU) * 1000)
+            }
+            expect(before.allSatisfy { abs($0 - 6) < 1 }, "discontinuity: pre-jump +6 ms")
+
+            // PTS goes backwards mid-pass → reset, drop until re-settled.
+            _ = clock.observe(stream: .video, ptsSeconds: 0.05, hostSeconds: 0.05)
+            _ = clock.observe(stream: .audio, ptsSeconds: 0.05, hostSeconds: 0.05)
+            expect(!clock.snapshot().settled && !clock.allowsPublishedPairs, "PTS discontinuity mid-pass: not settled")
+            let e = engine()
+            let held = publishIfSettled(clock, e, tVideo: 0.20, tAudio: 0.206)
+            expect(held == nil && e.snapshot().validCount == 0, "PTS discontinuity: drop until re-settled")
+
+            warmupClock(clock, seconds: 3.0)
+            expect(clock.allowsPublishedPairs, "PTS discontinuity: re-settled after warmup")
+            var after: [Double] = []
+            for i in 0..<12 {
+                let hostV = 3.0 + Double(i)
+                let hostA = hostV + 0.006
+                _ = clock.observe(stream: .video, ptsSeconds: hostV, hostSeconds: hostV)
+                _ = clock.observe(stream: .audio, ptsSeconds: hostA, hostSeconds: hostA)
+                let vU = clock.unified(stream: .video, ptsSeconds: hostV)
+                let aU = clock.unified(stream: .audio, ptsSeconds: hostA)
+                after.append((aU - vU) * 1000)
+            }
+            let med = MeasurementStatistics.median(after)
+            let walk = MeasurementStatistics.walkMsPerEvent(after) ?? 999
+            expect(after.count == 12, "discontinuity: post re-settle events", "n=\(after.count)")
+            expect(abs(med - 6) < 3.0, "PTS discontinuity then flat +6 ms", String(format: "med %.3f walk %.4f", med, walk))
+            expect(abs(walk) < 0.15, "PTS discontinuity re-settle walk flat", String(format: "walk %.4f", walk))
+        }
+
+        do {
+            let clock = CaptureClock()
+            warmupClock(clock, seconds: 3.0)
+            expect(clock.allowsPublishedPairs, "25 s freeze: settled")
+            var offsets: [Double] = []
+            for i in 0..<25 {
+                let hostV = 3.0 + Double(i)
+                let hostA = hostV + 0.006
+                _ = clock.observe(stream: .video, ptsSeconds: hostV, hostSeconds: hostV)
+                _ = clock.observe(stream: .audio, ptsSeconds: hostA, hostSeconds: hostA)
+                let vU = clock.unified(stream: .video, ptsSeconds: hostV)
+                let aU = clock.unified(stream: .audio, ptsSeconds: hostA)
+                offsets.append((aU - vU) * 1000)
+            }
+            let med = MeasurementStatistics.median(offsets)
+            let walk = MeasurementStatistics.walkMsPerEvent(offsets) ?? 999
+            let span = (offsets.max() ?? 0) - (offsets.min() ?? 0)
+            expect(offsets.count == 25, "25 s constant +6 ms event count", "n=\(offsets.count)")
+            expect(abs(med - 6) < 3.0, "25 s constant +6 ms stays flat after freeze", String(format: "med %.3f walk %.4f span %.3f", med, walk, span))
+            expect(abs(walk) < 0.15, "25 s freeze walk ≪ 1 ms/event", String(format: "walk %.4f", walk))
+            expect(span < 5.0, "25 s freeze span tight", String(format: "span %.3f", span))
+        }
+
+        do {
+            // Slope chatter must not stay CLOCK SETTLING forever.
+            let clock = CaptureClock()
+            var t = 0.0
+            while t <= 2.7 {
+                let jv = 0.008 * sin(t * 47.0)
+                let ja = 0.007 * sin(t * 53.0 + 0.8)
+                _ = clock.observe(stream: .video, ptsSeconds: t, hostSeconds: t + jv)
+                _ = clock.observe(stream: .audio, ptsSeconds: t, hostSeconds: t + ja)
+                t += 1.0 / 60.0
+            }
+            expect(clock.snapshot().settled && clock.allowsPublishedPairs, "force-settle after ~2.5 s of chatter")
+        }
+
+        do {
+            let clock = CaptureClock()
+            warmupClock(clock, seconds: 3.0)
+            expect(clock.allowsPublishedPairs, "post-settle drop: settled")
+            let e = engine()
+            var published = 0
+            for i in 0..<6 {
+                let tV = 3.0 + Double(i)
+                let tA = tV + 0.006
+                let takeV = clock.acceptDetectedEvent(stream: .video)
+                let takeA = clock.acceptDetectedEvent(stream: .audio)
+                if takeV {
+                    _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: tV, luminance: 0.8, threshold: 0.1))
+                } else {
+                    e.noteHeldForClock(flash: VisualFlashEvent(timestampSeconds: tV, luminance: 0.8, threshold: 0.1), pulse: nil)
+                }
+                if takeA {
+                    if e.ingestPulse(AudioPulseEvent(timestampSeconds: tA, envelope: 0.4, threshold: 0.1)) != nil {
+                        published += 1
+                    }
+                } else {
+                    e.noteHeldForClock(flash: nil, pulse: AudioPulseEvent(timestampSeconds: tA, envelope: 0.4, threshold: 0.1))
+                }
+            }
+            expect(e.snapshot().validCount == 4, "drop 2 pairs after gate opens", "valid=\(e.snapshot().validCount) published=\(published)")
+            expect(e.diagnostics.contains(where: { $0.kind == .clockSettling }), "dropped post-settle events are logged, not queued")
+        }
+
+                if failed == 0 {
             print("ALL HARNESS TESTS PASSED")
         } else {
             print("FAILED: \(failed)")

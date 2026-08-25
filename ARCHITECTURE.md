@@ -29,7 +29,8 @@ AVCaptureSession (one session)
 - Back wide camera + built-in microphone.
 - Video: bi-planar full-range YUV (`420f`). Luma is read from plane 0. 60 fps is requested when the active format allows it.
 - Audio: `AVCaptureAudioDataOutput` as 48 kHz mono float32.
-- **Timing rule:** `CMSampleBufferGetPresentationTimeStamp` (or output PTS), converted with `CMSyncConvertTime` from `session.masterClock` onto `CMClockGetHostTimeClock()`. `CaptureClock` then rate-maps each stream so pairing never subtracts two device clocks. No `Date()`, no UI timestamps, no independent timers for the offset.
+- **Timing rule:** `CMSampleBufferGetPresentationTimeStamp` (or output PTS), converted with `CMSyncConvertTime` from `session.masterClock` onto `CMClockGetHostTimeClock()`. That session-mapped PTS *is* unified time. `CaptureClock` may rate-map a synthetic PTS vs a stable host (tests / 1000 ppm), but the live path never slope-fits mapped PTS against callback `hostNowSeconds()`. No `Date()`, no UI timestamps, no independent timers for the offset.
+- AE / AWB / focus lock while measuring so a flash cannot pump exposure and look like a second flash.
 - Observed capture fps is estimated from a short run of video PTS deltas (display only).
 
 ## Unified clock (`CaptureClock`)
@@ -38,10 +39,10 @@ Each stream keeps a running timebase:
 
 ```
 unified += (pts − lastPTS) × slope
-slope   = d(host) / d(pts)   // locked after ~0.6 s of observations
+slope   = d(host) / d(pts)   // locked after ~0.6 s, frozen at settle
 ```
 
-Pairs are **not published** until both stream fits are *settled* (locked, ≥1 s span, slope stable). Unlocked hits never enter last-25 or the median. The UI shows CLOCK SETTLING / WALK — (clock settling).
+Pairs are **not published** until both stream fits are *settled* (locked, ≥1 s span, slope stable — or force-settled after ~2.5 s). Slope **freezes** at settle so a 15–25 beep pass cannot walk. The first two detector events per stream after the gate opens are dropped; settling-period events are never queued. A PTS discontinuity (backwards jump) resets and re-locks. Unlocked hits never enter last-25 or the median. The UI shows CLOCK SETTLING / WALK — (clock settling).
 
 Audio is the high-resolution reference in the sense that onset is sample-accurate on that timebase; video frames are mapped onto the same host seconds. A 1000 ppm PTS-rate error (≈ 1 ms per 1 Hz beep) becomes a slope ≠ 1 and is removed. Residual mean sensor delay is a constant (ZERO / SET TRUE).
 
@@ -54,7 +55,7 @@ No computer vision. Each frame:
 1. Average luminance in a configurable central square (overlaid on the preview).
 2. Maintain a **dark floor** updated only on quiet frames (not during the flash, not during holdoff).
 3. Fire on the **first** frame whose rise vs the previous frame clears the threshold *and* sits above the dark floor.
-4. Latch + holdoff, re-arm on the falling edge. One flash is one event.
+4. Latch + **~400 ms** holdoff, re-arm on the falling edge. One flash is one event. (8 frames at 60 fps was ~133 ms and let a ~150 ms double-flash steal the next pulse.)
 
 `processLuminance(_:timestampSeconds:)` is the hardware-free test hook.
 

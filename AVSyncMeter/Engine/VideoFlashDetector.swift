@@ -9,15 +9,17 @@ import CoreVideo
 /// EMA that includes the flash is how a threshold can walk 1 ms/s; this detector
 /// does not do that.
 ///
-/// One flash = one event via latch + holdoff + re-arm on the falling edge.
+/// One flash = one event via latch + ~400 ms holdoff + re-arm on the falling edge.
 final class VideoFlashDetector {
     struct Configuration {
         var regionFraction: Double = 0.35
         /// Sensitivity 0...1. Higher → smaller delta required.
         var sensitivity: Double = 0.65
         var manualThreshold: Double?
-        /// Frames the detector stays latched after a hit so a long flash is one event.
-        var holdoffFrames: Int = 8
+        /// Seconds the detector stays latched after a hit so a long flash is one event.
+        /// 8 frames at 60 fps was ~133 ms — projector persistence / AE recovery can
+        /// double-flash ~150 ms later and steal the next pulse. 400 ms matches audio.
+        var holdoffSeconds: Double = 0.40
         /// Quiet-frame dark-floor blend. Small on purpose — this is not an onset tracker.
         var floorAlpha: Double = 0.02
     }
@@ -28,8 +30,8 @@ final class VideoFlashDetector {
     private(set) var baseline: Double = 0
     private(set) var lastThreshold: Double = 0.12
     private var hasBaseline = false
-    private var armed = true
-    private var holdoffRemaining = 0
+    private var holdoffUntilSeconds: Double = -1
+    private var awaitingRearm = false
     private var previousLuminance: Double = 0
 
     init(configuration: Configuration = Configuration()) {
@@ -40,8 +42,8 @@ final class VideoFlashDetector {
         lastLuminance = 0
         baseline = 0
         hasBaseline = false
-        armed = true
-        holdoffRemaining = 0
+        holdoffUntilSeconds = -1
+        awaitingRearm = false
         previousLuminance = 0
     }
 
@@ -63,24 +65,16 @@ final class VideoFlashDetector {
             return nil
         }
 
-        if holdoffRemaining > 0 {
-            holdoffRemaining -= 1
-            if holdoffRemaining == 0 {
-                // Re-arm only after the field has actually fallen. A stuck-bright
-                // screen must not fire again until it goes dark.
-                if luminance < baseline + lastThreshold * 0.45 {
-                    armed = true
-                } else {
-                    armed = false
-                }
-            }
+        if timestampSeconds < holdoffUntilSeconds {
             previousLuminance = luminance
             return nil
         }
 
-        if !armed {
+        if awaitingRearm {
+            // Re-arm only after the field has actually fallen. A stuck-bright
+            // screen / AE recovery must not fire again until it goes dark.
             if luminance < baseline + lastThreshold * 0.45 {
-                armed = true
+                awaitingRearm = false
             } else {
                 previousLuminance = luminance
                 return nil
@@ -92,8 +86,8 @@ final class VideoFlashDetector {
         let hit = rising > lastThreshold && aboveFloor > lastThreshold * 0.5
 
         if hit {
-            armed = false
-            holdoffRemaining = configuration.holdoffFrames
+            awaitingRearm = true
+            holdoffUntilSeconds = timestampSeconds + configuration.holdoffSeconds
             previousLuminance = luminance
             // Do not fold the flash into the dark floor.
             return VisualFlashEvent(

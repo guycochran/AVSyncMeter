@@ -5,7 +5,8 @@ import Foundation
 ///
 /// Timing rule: detectors never see Date() or UI timestamps. Each buffer's
 /// presentation timestamp is converted onto the session master clock → host
-/// clock, then CaptureClock rate-maps it so audio and video share one timeline.
+/// clock (`hostMappedPTS`). That mapped PTS *is* the unified time. Do not
+/// slope-fit it against `hostNowSeconds()` (callback arrival jitter).
 final class CaptureManager: NSObject, ObservableObject {
     enum CaptureError: LocalizedError {
         case cameraDenied
@@ -32,6 +33,7 @@ final class CaptureManager: NSObject, ObservableObject {
     private let videoOutput = AVCaptureVideoDataOutput()
     private let audioOutput = AVCaptureAudioDataOutput()
     private var configured = false
+    private var videoDevice: AVCaptureDevice?
 
     @Published private(set) var isRunning = false
     @Published private(set) var lastError: String?
@@ -66,6 +68,7 @@ final class CaptureManager: NSObject, ObservableObject {
                 if !self.session.isRunning {
                     self.session.startRunning()
                 }
+                self.applyMeteringLock()
                 DispatchQueue.main.async {
                     self.isRunning = true
                     self.lastError = nil
@@ -100,6 +103,7 @@ final class CaptureManager: NSObject, ObservableObject {
             session.commitConfiguration()
             throw CaptureError.noCamera
         }
+        self.videoDevice = camera
         Self.lockFrameRateIfPossible(camera)
         let cameraInput = try AVCaptureDeviceInput(device: camera)
         guard session.canAddInput(cameraInput) else {
@@ -157,8 +161,56 @@ final class CaptureManager: NSObject, ObservableObject {
                 camera.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 60)
                 camera.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 60)
             }
+            // Converge on the screen first; applyMeteringLock freezes AE/AWB/AF
+            // once the session is running so a flash cannot pump exposure.
+            if camera.isFocusModeSupported(.continuousAutoFocus) {
+                camera.focusMode = .continuousAutoFocus
+            }
+            if camera.isExposureModeSupported(.continuousAutoExposure) {
+                camera.exposureMode = .continuousAutoExposure
+            }
+            if camera.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                camera.whiteBalanceMode = .continuousAutoWhiteBalance
+            }
         } catch {
             // Frame-rate lock is a preference, not a requirement.
+        }
+    }
+
+    /// Freeze AE / AWB / AF while measuring. A flash that pumps auto-exposure
+    /// recovers as a second luma rise ~150 ms later and steals the next pulse.
+    func lockMeteringWhileMeasuring() {
+        sessionQueue.async { [weak self] in
+            self?.applyMeteringLock()
+        }
+    }
+
+    private func applyMeteringLock() {
+        guard let camera = videoDevice else { return }
+        do {
+            try camera.lockForConfiguration()
+            defer { camera.unlockForConfiguration() }
+            if camera.isFocusModeSupported(.locked) {
+                camera.focusMode = .locked
+            }
+            if camera.isExposureModeSupported(.locked) {
+                camera.exposureMode = .locked
+            }
+            if camera.isWhiteBalanceModeSupported(.locked) {
+                camera.whiteBalanceMode = .locked
+            }
+            camera.isSubjectAreaChangeMonitoringEnabled = false
+            if camera.isLowLightBoostSupported {
+                camera.automaticallyEnablesLowLightBoostWhenAvailable = false
+            }
+            if camera.activeFormat.isVideoHDRSupported {
+                camera.automaticallyAdjustsVideoHDREnabled = false
+                if camera.isVideoHDREnabled {
+                    camera.isVideoHDREnabled = false
+                }
+            }
+        } catch {
+            // Metering lock is best-effort; measurement still runs.
         }
     }
 
@@ -189,6 +241,8 @@ final class CaptureManager: NSObject, ObservableObject {
         return s.isFinite ? s : nil
     }
 
+    /// Callback arrival on the host clock. Must not be the CaptureClock slope
+    /// fit target — that is the double-map that walked unlocked hits.
     static func hostNowSeconds() -> Double {
         CMTimeGetSeconds(CMClockGetTime(CMClockGetHostTimeClock()))
     }
