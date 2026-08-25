@@ -556,4 +556,43 @@ final class WalkAndClockTests: XCTestCase {
         }
     }
 
+    func testPicker297DoesNotSilentlySelectInteger30() {
+        let locked30 = CaptureFormatProbe(
+            width: 1920, height: 1080,
+            ranges: [CaptureFrameDurationRange(minDuration: .integer30, maxDuration: .integer30)]
+        )
+        XCTAssertNil(CaptureFrameDuration.selectLock(program: .fps2997, formats: [locked30]))
+
+        let wide30 = CaptureFormatProbe(
+            width: 1920, height: 1080,
+            ranges: [CaptureFrameDurationRange(minDuration: .integer30, maxDuration: CaptureFrameDuration(value: 1, timescale: 1))]
+        )
+        let choice = CaptureFrameDuration.selectLock(program: .fps2997, formats: [wide30])
+        XCTAssertEqual(choice?.duration.value, 1001)
+        XCTAssertEqual(choice?.duration.timescale, 30_000)
+        XCTAssertTrue(choice?.duration.isNTSCFamily ?? false)
+    }
+
+    func testPicker297Prefers60000Over30000() {
+        let ntsc60fmt = CaptureFormatProbe(
+            width: 1280, height: 720,
+            ranges: [CaptureFrameDurationRange(minDuration: .ntsc60, maxDuration: CaptureFrameDuration(value: 1, timescale: 1))]
+        )
+        let ntsc30fmt = CaptureFormatProbe(
+            width: 1920, height: 1080,
+            ranges: [CaptureFrameDurationRange(minDuration: .ntsc30, maxDuration: CaptureFrameDuration(value: 1, timescale: 1))]
+        )
+        let choice = CaptureFrameDuration.selectLock(program: .fps2997, formats: [ntsc30fmt, ntsc60fmt])
+        XCTAssertEqual(choice?.duration.timescale, 60_000)
+        XCTAssertEqual(choice?.duration.value, 1001)
+    }
+
+    func testIntegerFooterMissWhenPickerIs297() {
+        let miss = FrameRate.captureFooter(observedFPS: 30.0, picker: .fps2997)
+        XCTAssertTrue(miss.contains("MISS"))
+        XCTAssertTrue(miss.contains("integer"))
+        let ok = FrameRate.captureFooter(observedFPS: 30.0, picker: .fps30)
+        XCTAssertFalse(ok.contains("MISS"))
+    }
+
 }

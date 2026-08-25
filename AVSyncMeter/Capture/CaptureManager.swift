@@ -70,7 +70,9 @@ final class CaptureManager: NSObject, ObservableObject {
             do {
                 try self.configureIfNeeded()
                 if let camera = self.videoDevice {
+                    self.session.beginConfiguration()
                     Self.lockFrameRateIfPossible(camera, program: self.programFrameRate)
+                    self.session.commitConfiguration()
                 }
                 if !self.session.isRunning {
                     self.session.startRunning()
@@ -104,7 +106,8 @@ final class CaptureManager: NSObject, ObservableObject {
     private func configureIfNeeded() throws {
         if configured { return }
         session.beginConfiguration()
-        session.sessionPreset = .high
+        // inputPriority so NTSC 1001 lock can pick a format; .high was snapping to 1/30.
+        session.sessionPreset = .inputPriority
 
         guard let camera = Self.bestCamera() else {
             session.commitConfiguration()
@@ -164,25 +167,26 @@ final class CaptureManager: NSObject, ObservableObject {
         programFrameRate = rate
         sessionQueue.async { [weak self] in
             guard let self, let camera = self.videoDevice else { return }
+            self.session.beginConfiguration()
             Self.lockFrameRateIfPossible(camera, program: rate)
+            self.session.commitConfiguration()
         }
     }
 
-    /// Lock capture to the NTSC 1001 family when the program picker is 29.97/59.94,
-    /// not integer 1/60. Integer 30/60 pickers still use 1/60 (or 1/30).
+    /// Lock capture to the NTSC 1001 family when the program picker is 29.97/59.94.
+    /// Probe every format's CMTime endpoints; prefer 60_000/1001 then 30_000/1001.
+    /// Do not silently fall through to 1/30 or 1/60. Read back; if it snapped to
+    /// integer, try the next format. Footer shows NTSC lock MISS from observed fps.
     /// Keep AE continuous — locking exposure kills FLASH.
     private static func lockFrameRateIfPossible(_ camera: AVCaptureDevice, program: FrameRate) {
         do {
             try camera.lockForConfiguration()
             defer { camera.unlockForConfiguration() }
-            let ranges = camera.activeFormat.videoSupportedFrameRateRanges
-            let maxRate = ranges.map(\.maxFrameRate).max() ?? 0
-            let chosen = FrameRate.preferredCaptureDuration(program: program, maxFrameRate: maxRate)
-            let fps = chosen.framesPerSecond
-            if ranges.contains(where: { $0.minFrameRate - 0.05 <= fps && fps <= $0.maxFrameRate + 0.05 }) {
-                let duration = CMTime(value: chosen.value, timescale: chosen.timescale)
-                camera.activeVideoMinFrameDuration = duration
-                camera.activeVideoMaxFrameDuration = duration
+            let probes = probeFormats(camera)
+            if program.isNTSCFamily {
+                _ = applyNTSCLock(camera, probes: probes, program: program)
+            } else if let choice = CaptureFrameDuration.selectLock(program: program, formats: probes) {
+                applyDuration(camera, formatIndex: choice.formatIndex, duration: choice.duration)
             }
             // Converge on the screen. Do not freeze AE: locking exposure on a
             // dark monitor (or mid-flash) crushes ISO so the white flash never
@@ -199,6 +203,63 @@ final class CaptureManager: NSObject, ObservableObject {
         } catch {
             // Frame-rate lock is a preference, not a requirement.
         }
+    }
+
+    private static func probeFormats(_ camera: AVCaptureDevice) -> [CaptureFormatProbe] {
+        camera.formats.map { format in
+            let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+            let ranges = format.videoSupportedFrameRateRanges.map { r in
+                CaptureFrameDurationRange(
+                    minDuration: CaptureFrameDuration(value: r.minFrameDuration.value, timescale: r.minFrameDuration.timescale),
+                    maxDuration: CaptureFrameDuration(value: r.maxFrameDuration.value, timescale: r.maxFrameDuration.timescale)
+                )
+            }
+            return CaptureFormatProbe(width: Int(dims.width), height: Int(dims.height), ranges: ranges)
+        }
+    }
+
+    /// Try 60_000/1001 then 30_000/1001 on every format that can take them.
+    /// Success = readback is 1001-family, not a silent 1/30 snap.
+    @discardableResult
+    private static func applyNTSCLock(_ camera: AVCaptureDevice, probes: [CaptureFormatProbe], program: FrameRate) -> Bool {
+        let targets: [CaptureFrameDuration]
+        switch program {
+        case .fps23976:
+            targets = [.ntsc60, .ntsc30, .ntsc24]
+        default:
+            targets = [.ntsc60, .ntsc30]
+        }
+        for target in targets {
+            for idx in CaptureFrameDuration.rankedFormatIndices(formats: probes, containing: target) {
+                applyDuration(camera, formatIndex: idx, duration: target)
+                if readbackIsNTSC(camera) { return true }
+            }
+        }
+        if let listed = CaptureFrameDuration.closestListedNTSC(program: program, formats: probes) {
+            applyDuration(camera, formatIndex: listed.formatIndex, duration: listed.duration)
+            if readbackIsNTSC(camera) { return true }
+        }
+        return false
+    }
+
+    private static func applyDuration(_ camera: AVCaptureDevice, formatIndex: Int, duration: CaptureFrameDuration) {
+        guard camera.formats.indices.contains(formatIndex) else { return }
+        let format = camera.formats[formatIndex]
+        if camera.activeFormat !== format {
+            camera.activeFormat = format
+        }
+        let t = CMTime(value: duration.value, timescale: duration.timescale)
+        camera.activeVideoMinFrameDuration = t
+        camera.activeVideoMaxFrameDuration = t
+    }
+
+    private static func readbackIsNTSC(_ camera: AVCaptureDevice) -> Bool {
+        let t = camera.activeVideoMinFrameDuration
+        guard t.isValid, t.isNumeric, t.seconds > 1e-9 else { return false }
+        let fps = 1.0 / t.seconds
+        return abs(fps - 24_000.0 / 1_001.0) < 0.02
+            || abs(fps - 30_000.0 / 1_001.0) < 0.02
+            || abs(fps - 60_000.0 / 1_001.0) < 0.02
     }
 
     /// Lock focus only. Build 7 locked AE/AWB/AF on session start; locking

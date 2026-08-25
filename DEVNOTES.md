@@ -116,3 +116,18 @@ Leftover risk: a short non-beep click ~30 ms before the house beep can still 400
 
 Install with devicectl only — do not launch. No TestFlight.
 
+## Build 13 (NTSC lock actually sticks; PA-smeared beep)
+
+On-device 0.1.2 (12): footer `Capture 30.00 fps integer (picker 29.97)` — lock set 1001/30000 or 1001/60000 on the `.high` format using fps ±0.05 slop, iOS snapped to 1/30. DIAG: FLASH every ~1 s, REJECTEDEXTRAFLASH, **zero AUDIOPULSE**. Beep-like gate (`beepMaxDurationSeconds` 40 ms + 0.05 absolute threshold) classified the downstairs PA-smeared 1 Hz beep as voice.
+
+Build 13 probes every format's CMTime min/max durations, prefers 60_000/1001 then 30_000/1001, reads back, and retries the next format if it snapped to integer. NTSC picker never selects 1/30. If nothing locks, footer is `Capture 30.00 fps  integer  NTSC lock MISS  (picker 29.97)`. Session preset is `inputPriority` so the chosen format sticks.
+
+Audio: isolated 15–80 ms 1 Hz pulse still emits (PA smear, quiet MIC). Do not drop as voice just because duration >20 ms or amplitude is low. Sustained speech/walkie (ongoing energy) still dropped. 400 ms mask after a real beep. Voice 50/150/250 + beep +80 still pairs ~+80. Chatter between flashes still no pairs.
+
+Keeps AE off, (9) relative rate-lock, SIG PCM beep, fps %.2f, version on screen, pair ±400 ms, honest WALK, cal 0, sign/median/last-25/ZERO. Do not change one-pending if audio is fixed.
+
+HostHarness: picker 29.97 selects 1001 family; only-1/30 format does not silently pick 1/30; smeared 40–60 ms 1 Hz pulse onsets; voice+smeared 30 ms +80 still wins; integer-30 vs 29.97 still walks.
+
+Leftover risk: some iPhone formats still snap every 1001 CMTime to 1/30 or 1/60 — footer will say MISS honestly. A short non-beep click ~30 ms before the house beep can still 400 ms-mask it. SIG may still duck under capture.
+
+No install from this tree until Guy is at the Mac. No TestFlight. No launch.

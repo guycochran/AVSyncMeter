@@ -976,6 +976,9 @@ struct HostHarness {
             expect(ntsc.contains("29.97") && !ntsc.contains("30.0 fps") && !ntsc.contains("30.00"), "29.97 footer is 29.97 not 30.0", ntsc)
             expect(ntsc.contains("NTSC"), "29.97 footer labeled NTSC", ntsc)
             expect(integer.contains("30.00") && integer.contains("integer"), "integer-30 footer is 30.00 integer", integer)
+            expect(integer.contains("MISS"), "picker 29.97 + integer 30.00 footer says NTSC lock MISS", integer)
+            let intPicker = FrameRate.captureFooter(observedFPS: 30.0, picker: .fps30)
+            expect(intPicker.contains("30.00") && intPicker.contains("integer") && !intPicker.contains("MISS"), "integer picker 30 does not say NTSC lock MISS", intPicker)
             expect(FrameRate.captureFamily(observedFPS: 30_000.0 / 1_001.0) == "NTSC", "classify 29.97 as NTSC")
             expect(FrameRate.captureFamily(observedFPS: 30.0) == "integer", "classify 30.00 as integer")
             expect(FrameRate.captureFamily(observedFPS: 60_000.0 / 1_001.0) == "NTSC", "classify 59.94 as NTSC")
@@ -1188,6 +1191,151 @@ struct HostHarness {
             let b = pair(e, tVideo: 2.0, tAudio: 2.200)
             expect(a != nil && abs(a!.offsetMilliseconds - 164) < 0.001, "stage-noise path: +164 still pairs")
             expect(b != nil && abs(b!.offsetMilliseconds - 200) < 0.001, "stage-noise path: +200 still pairs")
+        }
+
+
+
+        // MARK: - Build 13: probe NTSC lock (never silent 1/30); PA-smeared 1 Hz beep
+
+        do {
+            let locked30 = CaptureFormatProbe(
+                width: 1920, height: 1080,
+                ranges: [CaptureFrameDurationRange(minDuration: .integer30, maxDuration: .integer30)]
+            )
+            let miss = CaptureFrameDuration.selectLock(program: .fps2997, formats: [locked30])
+            expect(miss == nil, "picker 29.97 + only 1/30 format does not silently select 1/30", miss.map { "\($0.duration.value)/\($0.duration.timescale)" } ?? "nil")
+
+            let wide30 = CaptureFormatProbe(
+                width: 1920, height: 1080,
+                ranges: [CaptureFrameDurationRange(minDuration: .integer30, maxDuration: CaptureFrameDuration(value: 1, timescale: 1))]
+            )
+            let d30 = CaptureFrameDuration.selectLock(program: .fps2997, formats: [wide30])
+            expect(d30 != nil && d30!.duration.value == 1001 && d30!.duration.timescale == 30_000, "picker 29.97 on 1/30…1/1 range selects 30_000/1001 not 1/30", d30.map { "\($0.duration.value)/\($0.duration.timescale)" } ?? "nil")
+
+            let native60 = CaptureFormatProbe(
+                width: 1280, height: 720,
+                ranges: [CaptureFrameDurationRange(minDuration: .ntsc60, maxDuration: CaptureFrameDuration(value: 1, timescale: 1))]
+            )
+            let integer60fmt = CaptureFormatProbe(
+                width: 1920, height: 1080,
+                ranges: [CaptureFrameDurationRange(minDuration: .integer60, maxDuration: CaptureFrameDuration(value: 1, timescale: 1))]
+            )
+            let d60 = CaptureFrameDuration.selectLock(program: .fps2997, formats: [integer60fmt, native60])
+            expect(d60 != nil && d60!.duration.value == 1001 && d60!.duration.timescale == 60_000, "picker 29.97 prefers 60_000/1001 from the format list", d60.map { "idx=\($0.formatIndex) \($0.duration.value)/\($0.duration.timescale)" } ?? "nil")
+            expect(d60?.formatIndex == 1, "prefer the format that natively lists 1001/60000", d60.map { "idx=\($0.formatIndex)" } ?? "nil")
+
+            let listedOnly = CaptureFormatProbe(
+                width: 1920, height: 1080,
+                ranges: [CaptureFrameDurationRange(minDuration: .ntsc30, maxDuration: .ntsc30)]
+            )
+            let closest = CaptureFrameDuration.selectLock(program: .fps2997, formats: [listedOnly])
+            expect(closest != nil && closest!.duration.isNTSCFamily && closest!.duration.timescale == 30_000, "closest listed 1001-family is 30_000/1001", closest.map { "\($0.duration.value)/\($0.duration.timescale)" } ?? "nil")
+
+            let i30 = CaptureFrameDuration.selectLock(program: .fps30, formats: [wide30])
+            expect(i30 != nil && i30!.duration.value == 1 && i30!.duration.timescale == 30, "integer 30 picker still selects 1/30", i30.map { "\($0.duration.value)/\($0.duration.timescale)" } ?? "nil")
+        }
+
+        do {
+            // Isolated 1 Hz PA-smeared 40–60 ms pulse, quiet MIC. Must onset.
+            let d = AudioPulseDetector()
+            let rate = 48_000.0
+            let buf = 1024
+            func feed(from t0: Double, until t1: Double, paint: (Double) -> Float) -> [AudioPulseEvent] {
+                var hits: [AudioPulseEvent] = []
+                var t = t0
+                while t < t1 {
+                    var samples = [Float](repeating: 0, count: buf)
+                    for i in 0..<buf { samples[i] = paint(t + Double(i) / rate) }
+                    if let ev = d.processMonoSamples(samples, bufferStartSeconds: t, sampleRate: rate) {
+                        hits.append(ev)
+                    }
+                    t += Double(buf) / rate
+                }
+                return hits
+            }
+            func smear(_ t: Double, start: Double, dur: Double, amp: Float) -> Float {
+                guard t >= start && t < start + dur else { return 0 }
+                let local = t - start
+                let fade = min(0.008, dur / 4)
+                let env: Float
+                if local < fade { env = Float(local / fade) }
+                else if local > dur - fade { env = Float(max(0, (dur - local) / fade)) }
+                else { env = 1 }
+                return env * amp * Float(sin(2 * Double.pi * 1_000 * t))
+            }
+            _ = feed(from: 0.0, until: 0.8, paint: { _ in 0.001 })
+            let hits = feed(from: 0.8, until: 2.7, paint: { t in
+                0.001 + smear(t, start: 1.0, dur: 0.050, amp: 0.055) + smear(t, start: 2.0, dur: 0.060, amp: 0.040)
+            })
+            expect(hits.count == 2, "smeared 50/60 ms 1 Hz PA pulse still onsets", "n=\(hits.count) times=\(hits.map { String(format: "%.3f dur=%.3f", $0.timestampSeconds, $0.durationSeconds) })")
+            if hits.count >= 1 {
+                expect(abs(hits[0].timestampSeconds - 1.0) < 0.012, "first smeared onset ~1.000", String(format: "%.4f", hits[0].timestampSeconds))
+                expect(hits[0].isBeepLike, "smeared 50 ms isolated pulse is beep-like")
+            }
+            if hits.count >= 2 {
+                expect(abs(hits[1].timestampSeconds - 2.0) < 0.012, "second 1 Hz smeared onset ~2.000", String(format: "%.4f", hits[1].timestampSeconds))
+            }
+        }
+
+        do {
+            // Voice 50/150/250 + smeared 30 ms beep at +80 must still pair ~+80.
+            let d = AudioPulseDetector()
+            let rate = 48_000.0
+            let buf = 1024
+            func feed(from t0: Double, until t1: Double, paint: (Double) -> Float) -> [AudioPulseEvent] {
+                var hits: [AudioPulseEvent] = []
+                var t = t0
+                while t < t1 {
+                    var samples = [Float](repeating: 0, count: buf)
+                    for i in 0..<buf { samples[i] = paint(t + Double(i) / rate) }
+                    if let ev = d.processMonoSamples(samples, bufferStartSeconds: t, sampleRate: rate) {
+                        hits.append(ev)
+                    }
+                    t += Double(buf) / rate
+                }
+                return hits
+            }
+            func sample(_ t: Double) -> Float {
+                func syl(_ start: Double, f0: Double) -> Float {
+                    let dur = 0.10
+                    guard t >= start && t < start + dur else { return 0 }
+                    let local = t - start
+                    let env: Float
+                    if local < 0.012 { env = Float(local / 0.012) }
+                    else if local > dur - 0.02 { env = Float(max(0, (dur - local) / 0.02)) }
+                    else { env = 1 }
+                    return env * 0.32 * Float(sin(2 * Double.pi * f0 * t) + 0.35 * sin(2 * Double.pi * 2 * f0 * t))
+                }
+                func beep(_ start: Double) -> Float {
+                    let dur = 0.030
+                    guard t >= start && t < start + dur else { return 0 }
+                    let local = t - start
+                    let fade = 0.004
+                    let env: Float
+                    if local < fade { env = Float(local / fade) }
+                    else if local > dur - fade { env = Float(max(0, (dur - local) / fade)) }
+                    else { env = 1 }
+                    return env * 0.70 * Float(sin(2 * Double.pi * 1_000 * t))
+                }
+                let mixed = 0.001 + syl(1.050, f0: 180) + beep(1.080) + syl(1.150, f0: 200) + syl(1.250, f0: 170)
+                return max(-1, min(1, mixed))
+            }
+            _ = feed(from: 0.0, until: 0.9, paint: { _ in 0.001 })
+            let hits = feed(from: 0.9, until: 1.70, paint: sample)
+            expect(hits.count == 1, "detector: 30 ms smeared beep not syllables (50/150/250 + beep +80)", "n=\(hits.count) times=\(hits.map { String(format: "%.3f beep=%d", $0.timestampSeconds, $0.isBeepLike ? 1 : 0) })")
+            if let onset = hits.first {
+                expect(abs(onset.timestampSeconds - 1.080) < 0.012, "smeared +80 ms beep onset", String(format: "%.4f", onset.timestampSeconds))
+                expect(onset.isBeepLike, "smeared overlay pulse is beep-like")
+            }
+            let e = SyncMeasurementEngine()
+            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 1.0, luminance: 0.8, threshold: 0.1))
+            _ = e.ingestPulse(.voiceLike(timestampSeconds: 1.050))
+            _ = e.ingestPulse(.voiceLike(timestampSeconds: 1.150))
+            _ = e.ingestPulse(.voiceLike(timestampSeconds: 1.250))
+            if let onset = hits.first {
+                let s = e.ingestPulse(onset)
+                expect(s != nil && abs(s!.offsetMilliseconds - 80) < 15, "voice 50/150/250 does not steal; smeared beep +80 still pairs", s.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
+            }
         }
 
         if failed == 0 {

@@ -10,12 +10,13 @@ import Accelerate
 /// 1 ms per beep. The noise floor is updated only on quiet hops, never
 /// during the mask. Onset time = buffer media timestamp + sample offset.
 ///
-/// Stage-noise: only *beep-like* pulses are emitted — a sharp short transient
-/// (~10–20 ms then quiet), not sustained voice. Speech stays loud so quiet
+/// Stage-noise: only *beep-like* pulses are emitted — an isolated transient
+/// then quiet, not sustained voice. A PA-smeared 1 Hz Harkwood/PCM beep
+/// (15–80 ms, even quiet) must still event. Speech stays loud so quiet
 /// re-arm cannot fire on the next syllable. A 1 kHz overlay can still win
 /// while voice is held. 400 ms mask after a real beep.
 ///
-/// No pitch detection (high-band energy / duration only).
+/// No pitch detection (high-band energy / duration / isolation).
 final class AudioPulseDetector {
     struct Configuration {
         var sensitivity: Double = 0.65
@@ -26,16 +27,17 @@ final class AudioPulseDetector {
         /// First-sample onset vs noise floor. Independent of the trigger.
         var onsetNoiseMultiple: Double = 4.0
         var triggerNoiseMultiple: Double = 12.0
-        var absoluteOnsetFloor: Double = 0.02
-        var absoluteTriggerFloor: Double = 0.05
+        var absoluteOnsetFloor: Double = 0.008
+        var absoluteTriggerFloor: Double = 0.016
         /// After the mask, stay deaf until envelope falls below this fraction of threshold.
         var rearmQuietFraction: Double = 0.35
         /// Quiet-hop noise-floor half-life. Slow rise, fast fall.
         var noiseHalfLifeSeconds: Double = 0.6
         var confirmationSamples: Int = 6
         var lookbackSeconds: Double = 0.03
-        /// Longer than this while still loud is voice, not a Harkwood/SIG beep.
-        var beepMaxDurationSeconds: Double = 0.040
+        /// Isolated pulses up to this duration are still a beep (PA smear).
+        /// Ongoing energy past this is voice/walkie, not a 1 Hz house beep.
+        var beepMaxDurationSeconds: Double = 0.085
         /// High-band (mean abs-diff) jump that can overlay a 1 kHz beep on speech.
         var highBandJump: Double = 0.035
     }
@@ -167,8 +169,11 @@ final class AudioPulseDetector {
                 ignoreSustainedUntilQuiet = false
             }
 
-            let rmsTrigger = rms > lastThreshold * 1.12
-                && rms > previousEnvelope + lastThreshold * 0.25
+            // Quiet-to-loud isolated pulse (smeared PA) may ramp across hops
+            // without a 0.25-threshold jump. Do not require a click edge.
+            let wasQuiet = previousEnvelope < max(lastThreshold * 0.40, baseline * 3, 0.004)
+            let rmsTrigger = rms > lastThreshold * 1.08
+                && (wasQuiet || rms > previousEnvelope + lastThreshold * 0.18)
                 && rms > baseline * configuration.triggerNoiseMultiple * 0.5
             // 1 kHz overlay on already-loud speech: broadband RMS may not jump.
             // Entering ~1 kHz territory (zcr ~0.042 at 48 kHz), not a hop-delta —
@@ -303,7 +308,9 @@ final class AudioPulseDetector {
         return combinedStart + Double(max(searchStart, hopEnd - win)) / sampleRate
     }
 
-    /// Commit a short-then-quiet candidate as beep-like, or drop sustained voice.
+    /// Commit an isolated pulse as beep-like, or drop sustained voice.
+    /// A ~1 Hz PA-smeared beep (15–80 ms, quiet after) must event even if it
+    /// is longer than 20 ms or low amplitude. Ongoing energy is still voice.
     private func finishCandidateIfReady(now: Double) -> AudioPulseEvent? {
         guard let c = candidate else { return nil }
         let duration = max(0, c.lastLoudSeconds - c.onsetSeconds)
@@ -325,9 +332,9 @@ final class AudioPulseDetector {
                 isBeepLike: true
             )
         }
-        if seen >= 0.045 && duration > maxDur {
-            // Sustained voice: do not emit, do not 400 ms-mask (a 1 kHz beep
-            // overlay still has to win). Stay deaf to the next syllable until quiet.
+        if seen >= maxDur + 0.012 && duration > maxDur {
+            // Sustained voice/walkie: do not emit, do not 400 ms-mask (a 1 kHz
+            // beep overlay still has to win). Deaf to the next syllable until quiet.
             candidate = nil
             ignoreSustainedUntilQuiet = true
             return nil
@@ -380,12 +387,13 @@ final class AudioPulseDetector {
 
     func effectiveThreshold(relativeToBaseline base: Double) -> Double {
         if let manual = configuration.manualThreshold { return max(0.002, manual) }
-        let floor = configuration.absoluteTriggerFloor - configuration.sensitivity * 0.03
-        // Quiet-only floor already; never let threshold sit a mill above the noise.
-        let noiseFloor = max(base, 0.004)
-        let fromNoise = noiseFloor * configuration.triggerNoiseMultiple
-        let raw = max(floor, fromNoise)
-        return max(0.05, raw * (1.4 - configuration.sensitivity * 0.4))
+        // Do not clamp to 0.05 — that floor ate the downstairs PA beep
+        // (MIC sliver, smeared house 1 kHz). Isolated pulses still have to
+        // go quiet; sustained speech is dropped by duration, not amplitude.
+        let floor = max(0.008, configuration.absoluteTriggerFloor - configuration.sensitivity * 0.008)
+        let noiseFloor = max(base, 0.0008)
+        let fromNoise = noiseFloor * max(6.0, configuration.triggerNoiseMultiple * 0.5)
+        return max(floor, fromNoise)
     }
 
     private func onsetThreshold() -> Double {
