@@ -18,6 +18,7 @@
 		802BA0D765B52FBF38038325 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5480388106295ED54979CB2E /* Theme.swift */; };
 		84C034DA73E809D983268C8B /* MeasurementSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE65D68D1A919561E10CF863 /* MeasurementSession.swift */; };
 		927D0BEAC67A49490D049227 /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F7BA48D88CF9B2249F1C26F /* DiagnosticsView.swift */; };
+		98F16E2BDC78CAB60C8CDBE9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EC09F89AB8C59DE04650CA92 /* Assets.xcassets */; };
 		A1114D299BBA463904EE12D8 /* SyncMeasurementEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC61600FF33C1B3DA27315EE /* SyncMeasurementEngineTests.swift */; };
 		A94DDC9C9B8767ECB52D37EC /* CaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F57D7EBB1FB7D4A2B9483B3F /* CaptureManager.swift */; };
 		B0E55437956F357E558CC965 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAA2B2463B9F51ABF10892B5 /* AppSettings.swift */; };
@@ -49,13 +50,14 @@
 		9B0E0CD56CDB273FBBB0D3C2 /* VideoFlashDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFlashDetector.swift; sourceTree = "<group>"; };
 		A1F910531B6ADE12E8441CEE /* MeasurementStatistics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeasurementStatistics.swift; sourceTree = "<group>"; };
 		AA0A49C22356D201751D7ABA /* SyncTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncTypes.swift; sourceTree = "<group>"; };
-		BE381D263E81E858E3DDDF68 /* AVSyncMeter.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AVSyncMeter.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BE381D263E81E858E3DDDF68 /* AVSyncMeter.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AVSyncMeter.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CAA2B2463B9F51ABF10892B5 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		CC4BD9485B0F3D045E9440B2 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		DC61600FF33C1B3DA27315EE /* SyncMeasurementEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncMeasurementEngineTests.swift; sourceTree = "<group>"; };
 		DFFBF5C04BFC0C34A8FFEAC6 /* AVSyncMeterApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVSyncMeterApp.swift; sourceTree = "<group>"; };
+		EC09F89AB8C59DE04650CA92 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		EE65D68D1A919561E10CF863 /* MeasurementSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeasurementSession.swift; sourceTree = "<group>"; };
-		F18B4B78E59D8DC937AF6904 /* AVSyncMeterTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AVSyncMeterTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F18B4B78E59D8DC937AF6904 /* AVSyncMeterTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AVSyncMeterTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F57D7EBB1FB7D4A2B9483B3F /* CaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -97,6 +99,7 @@
 		DB5ED199F2232B487E421FCD /* AVSyncMeter */ = {
 			isa = PBXGroup;
 			children = (
+				EC09F89AB8C59DE04650CA92 /* Assets.xcassets */,
 				DFFBF5C04BFC0C34A8FFEAC6 /* AVSyncMeterApp.swift */,
 				079A43D77619BA00639F3CA5 /* Info.plist */,
 				39191ADAA218E3FEFE9A8019 /* Capture */,
@@ -142,6 +145,7 @@
 			buildConfigurationList = 217777AECB0CA2595512DFC3 /* Build configuration list for PBXNativeTarget "AVSyncMeter" */;
 			buildPhases = (
 				B4CD70CF0B72F2B4886AD651 /* Sources */,
+				A13C1DC22BA8B05E5688CF01 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -179,10 +183,14 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 2700;
+				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					AF663152BE992A269A64199C = {
+						DevelopmentTeam = 98944N7X3Y;
 						ProvisioningStyle = Automatic;
+					};
+					FF8E9D642DF8F1AB542A39B0 = {
+						DevelopmentTeam = 98944N7X3Y;
 					};
 				};
 			};
@@ -205,6 +213,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A13C1DC22BA8B05E5688CF01 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				98F16E2BDC78CAB60C8CDBE9 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		89A38E00B71EE127D3C3B104 /* Sources */ = {
@@ -283,11 +302,11 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 98944N7X3Y;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -296,13 +315,13 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 0.1.1;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
@@ -333,10 +352,9 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = 98944N7X3Y;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AVSyncMeter/Info.plist;
-				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_CFBundleIconName = AppIcon;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -403,11 +421,11 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 98944N7X3Y;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -422,6 +440,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 0.1.1;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
@@ -429,7 +448,6 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -443,10 +461,9 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = 98944N7X3Y;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AVSyncMeter/Info.plist;
-				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_CFBundleIconName = AppIcon;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
