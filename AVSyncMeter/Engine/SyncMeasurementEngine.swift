@@ -3,9 +3,13 @@ import Foundation
 /// Pairs visual flash events with audio pulse events and accumulates statistics.
 ///
 /// Fully testable without AVFoundation hardware: inject `VisualFlashEvent` and
-/// `AudioPulseEvent` with synthetic media timestamps.
+/// `AudioPulseEvent` with timestamps already on ONE clock (CaptureClock unified
+/// seconds in the live path).
 ///
-/// Pairing: nearest plausible pair inside ±pairingWindowSeconds (default 1 s).
+/// Pairing: chronological 1:1. Oldest flash vs oldest pulse; if they sit inside
+/// ±pairingWindowSeconds they pair; otherwise the older one expires. No nearest-
+/// neighbour stealing across cycles, no accumulating pairing debt.
+///
 /// Sign: offsetMilliseconds = (audio - video) * 1000. See SyncSignConvention.
 final class SyncMeasurementEngine {
     struct Configuration {
@@ -48,7 +52,7 @@ final class SyncMeasurementEngine {
         appendDiagnostic(DiagnosticEvent(
             id: UUID(),
             kind: .flash,
-            message: String(format: "Flash video PTS %.4f  luma %.3f  thr %.3f", event.timestampSeconds, event.luminance, event.threshold),
+            message: String(format: "Flash unified %.4f  luma %.3f  thr %.3f", event.timestampSeconds, event.luminance, event.threshold),
             videoPTS: event.timestampSeconds,
             audioPTS: nil,
             offsetMilliseconds: nil,
@@ -59,8 +63,9 @@ final class SyncMeasurementEngine {
             captureFPS: nil
         ))
         pendingFlashes.append(event)
+        pendingFlashes.sort { $0.timestampSeconds < $1.timestampSeconds }
         expireStale(now: event.timestampSeconds)
-        return pairBest()
+        return pairReady()
     }
 
     @discardableResult
@@ -69,7 +74,7 @@ final class SyncMeasurementEngine {
         appendDiagnostic(DiagnosticEvent(
             id: UUID(),
             kind: .audioPulse,
-            message: String(format: "Audio onset PTS %.4f  env %.3f  thr %.3f", event.timestampSeconds, event.envelope, event.threshold),
+            message: String(format: "Audio onset unified %.4f  env %.3f  thr %.3f", event.timestampSeconds, event.envelope, event.threshold),
             videoPTS: nil,
             audioPTS: event.timestampSeconds,
             offsetMilliseconds: nil,
@@ -80,8 +85,9 @@ final class SyncMeasurementEngine {
             captureFPS: nil
         ))
         pendingPulses.append(event)
+        pendingPulses.sort { $0.timestampSeconds < $1.timestampSeconds }
         expireStale(now: event.timestampSeconds)
-        return pairBest()
+        return pairReady()
     }
 
     func snapshot() -> MeasurementSnapshot {
@@ -95,28 +101,39 @@ final class SyncMeasurementEngine {
         if let pulse { _ = ingestPulse(pulse) }
     }
 
-    private func pairBest() -> SyncSample? {
-        guard !pendingFlashes.isEmpty, !pendingPulses.isEmpty else { return nil }
-        let window = configuration.pairingWindowSeconds
-        var bestFlashIndex: Int?
-        var bestPulseIndex: Int?
-        var bestAbs = Double.greatestFiniteMagnitude
-
-        for (fi, flash) in pendingFlashes.enumerated() {
-            for (pi, pulse) in pendingPulses.enumerated() {
-                let dt = pulse.timestampSeconds - flash.timestampSeconds
-                if abs(dt) <= window, abs(dt) < bestAbs {
-                    bestAbs = abs(dt)
-                    bestFlashIndex = fi
-                    bestPulseIndex = pi
-                }
-            }
+    /// Greedy 1:1 in time order. Repeat until the heads are not pairable.
+    @discardableResult
+    private func pairReady() -> SyncSample? {
+        var last: SyncSample?
+        while let sample = pairHeadsIfReady() {
+            last = sample
         }
+        return last
+    }
 
-        guard let fi = bestFlashIndex, let pi = bestPulseIndex else { return nil }
-        let flash = pendingFlashes.remove(at: fi)
-        let pulse = pendingPulses.remove(at: pi)
-        // offset = audio - video, milliseconds
+    private func pairHeadsIfReady() -> SyncSample? {
+        guard let flash = pendingFlashes.first, let pulse = pendingPulses.first else {
+            return nil
+        }
+        let window = configuration.pairingWindowSeconds
+        let dt = pulse.timestampSeconds - flash.timestampSeconds
+        if abs(dt) <= window {
+            pendingFlashes.removeFirst()
+            pendingPulses.removeFirst()
+            return emitPair(flash: flash, pulse: pulse)
+        }
+        // Not pairable: expire the older head so it cannot pile up as pairing debt.
+        if flash.timestampSeconds < pulse.timestampSeconds {
+            pendingFlashes.removeFirst()
+            rejectUnpairedFlash(flash)
+        } else {
+            pendingPulses.removeFirst()
+            rejectUnpairedPulse(pulse)
+        }
+        return nil
+    }
+
+    private func emitPair(flash: VisualFlashEvent, pulse: AudioPulseEvent) -> SyncSample {
         let offsetMs = (pulse.timestampSeconds - flash.timestampSeconds) * 1_000.0
         var sample = SyncSample(
             id: UUID(),
@@ -139,7 +156,7 @@ final class SyncMeasurementEngine {
             id: UUID(),
             kind: sample.isOutlier ? .rejectedOutlier : .paired,
             message: String(
-                format: "Paired offset %+.2f ms  vPTS %.4f  aPTS %.4f%@",
+                format: "Paired offset %+.2f ms  v %.4f  a %.4f%@",
                 offsetMs,
                 flash.timestampSeconds,
                 pulse.timestampSeconds,
@@ -160,49 +177,48 @@ final class SyncMeasurementEngine {
     private func expireStale(now: Double) {
         let window = configuration.pairingWindowSeconds
         let age = configuration.maxQueueAgeSeconds
-        func keepFlash(_ e: VisualFlashEvent) -> Bool {
-            now - e.timestampSeconds <= max(window, age)
-        }
-        func keepPulse(_ e: AudioPulseEvent) -> Bool {
-            now - e.timestampSeconds <= max(window, age)
-        }
+        let limit = max(window, age)
 
-        let dropF = pendingFlashes.filter { !keepFlash($0) }
-        let dropP = pendingPulses.filter { !keepPulse($0) }
-        for flash in dropF {
-            unpairedRejected += 1
-            appendDiagnostic(DiagnosticEvent(
-                id: UUID(),
-                kind: .rejectedUnpaired,
-                message: String(format: "Unpaired flash expired vPTS %.4f", flash.timestampSeconds),
-                videoPTS: flash.timestampSeconds,
-                audioPTS: nil,
-                offsetMilliseconds: nil,
-                luminance: flash.luminance,
-                visualThreshold: flash.threshold,
-                audioEnvelope: nil,
-                audioThreshold: nil,
-                captureFPS: nil
-            ))
-        }
-        for pulse in dropP {
-            unpairedRejected += 1
-            appendDiagnostic(DiagnosticEvent(
-                id: UUID(),
-                kind: .rejectedUnpaired,
-                message: String(format: "Unpaired audio expired aPTS %.4f", pulse.timestampSeconds),
-                videoPTS: nil,
-                audioPTS: pulse.timestampSeconds,
-                offsetMilliseconds: nil,
-                luminance: nil,
-                visualThreshold: nil,
-                audioEnvelope: pulse.envelope,
-                audioThreshold: pulse.threshold,
-                captureFPS: nil
-            ))
-        }
-        pendingFlashes.removeAll { !keepFlash($0) }
-        pendingPulses.removeAll { !keepPulse($0) }
+        let dropF = pendingFlashes.filter { now - $0.timestampSeconds > limit }
+        let dropP = pendingPulses.filter { now - $0.timestampSeconds > limit }
+        for flash in dropF { rejectUnpairedFlash(flash) }
+        for pulse in dropP { rejectUnpairedPulse(pulse) }
+        pendingFlashes.removeAll { now - $0.timestampSeconds > limit }
+        pendingPulses.removeAll { now - $0.timestampSeconds > limit }
+    }
+
+    private func rejectUnpairedFlash(_ flash: VisualFlashEvent) {
+        unpairedRejected += 1
+        appendDiagnostic(DiagnosticEvent(
+            id: UUID(),
+            kind: .rejectedUnpaired,
+            message: String(format: "Unpaired flash expired v %.4f", flash.timestampSeconds),
+            videoPTS: flash.timestampSeconds,
+            audioPTS: nil,
+            offsetMilliseconds: nil,
+            luminance: flash.luminance,
+            visualThreshold: flash.threshold,
+            audioEnvelope: nil,
+            audioThreshold: nil,
+            captureFPS: nil
+        ))
+    }
+
+    private func rejectUnpairedPulse(_ pulse: AudioPulseEvent) {
+        unpairedRejected += 1
+        appendDiagnostic(DiagnosticEvent(
+            id: UUID(),
+            kind: .rejectedUnpaired,
+            message: String(format: "Unpaired audio expired a %.4f", pulse.timestampSeconds),
+            videoPTS: nil,
+            audioPTS: pulse.timestampSeconds,
+            offsetMilliseconds: nil,
+            luminance: nil,
+            visualThreshold: nil,
+            audioEnvelope: pulse.envelope,
+            audioThreshold: pulse.threshold,
+            captureFPS: nil
+        ))
     }
 
     private func applyConfigurationToStats() {

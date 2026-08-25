@@ -133,6 +133,7 @@ struct MeasurementView: View {
                 .foregroundStyle(VenueTheme.dim)
             rawCorrectedRow
             stabilityBadge
+            walkBadge
             calibrationBadge
             honestyLine
             pcmHint
@@ -149,6 +150,21 @@ struct MeasurementView: View {
             .font(.system(size: 13, weight: .bold, design: .monospaced))
             .foregroundStyle(stable ? VenueTheme.stable : VenueTheme.unstable)
             .padding(.top, 2)
+    }
+
+    private var walkBadge: some View {
+        Group {
+            if let walk = session.snapshot.walkMsPerEvent {
+                let flat = abs(walk) < 0.2
+                Text(String(format: "WALK %+.2f ms/beep", walk))
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundStyle(flat ? VenueTheme.stable : VenueTheme.unstable)
+            } else {
+                Text("WALK — (need ≥8)")
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(VenueTheme.dim)
+            }
+        }
     }
 
     private var calibrationBadge: some View {

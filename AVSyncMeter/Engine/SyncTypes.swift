@@ -9,7 +9,7 @@ import Foundation
 /// - AUDIO LATE: picture arrives before sound → **negative** offset.
 ///   Reduce existing Mitti audio delay by |offset| ms (or delay video if audio delay is already 0).
 ///
-/// Timestamps are media/presentation times from a single AVCaptureSession, in seconds.
+/// Timestamps are unified capture times (host-mapped via CaptureClock), in seconds.
 enum SyncSignConvention {
     static let documentation = """
     offsetMilliseconds = audioTimestamp - videoTimestamp
@@ -33,14 +33,14 @@ enum SyncDirection: Equatable {
 }
 
 struct VisualFlashEvent: Equatable {
-    /// Media timestamp of the detected flash edge, seconds.
+    /// Unified timestamp of the detected flash edge, seconds.
     let timestampSeconds: Double
     let luminance: Double
     let threshold: Double
 }
 
 struct AudioPulseEvent: Equatable {
-    /// Media timestamp of the pulse onset (buffer PTS + sample offset), seconds.
+    /// Unified timestamp of the pulse onset (buffer start + sample offset), seconds.
     let timestampSeconds: Double
     let envelope: Double
     let threshold: Double
@@ -104,6 +104,9 @@ struct MeasurementSnapshot: Equatable {
     var calibrationApplied: Bool
     /// Last 25 valid (non-outlier) pairs, newest first. Offsets are still raw (uncorrected).
     var recentValidSamples: [SyncSample]
+    /// Linear slope of valid offsets vs event index (ms per beep). Nil if fewer than 8 valid.
+    /// A constant delay must sit near 0. ~1 ms/beep is a walking meter, not a house change.
+    var walkMsPerEvent: Double?
 
     /// Last valid pair minus calibration. Table/debug only — not the main headline.
     var correctedCurrentMilliseconds: Double? {
@@ -137,7 +140,8 @@ struct MeasurementSnapshot: Equatable {
         isStable: false,
         calibrationOffsetMilliseconds: 0,
         calibrationApplied: false,
-        recentValidSamples: []
+        recentValidSamples: [],
+        walkMsPerEvent: nil
     )
 }
 

@@ -1,64 +1,77 @@
 # Architecture
 
-The raw measurement engine is independent of SwiftUI. UI observes `MeasurementSession`. Tests inject timestamps into `SyncMeasurementEngine` with no capture hardware.
+The raw measurement engine is independent of SwiftUI. UI observes `MeasurementSession`. Tests inject timestamps into `SyncMeasurementEngine` with no capture hardware, and drive detectors with synthetic luma / PCM.
 
 ## Pipeline
 
 ```
 AVCaptureSession (one session)
         │
-        ├── AVCaptureVideoDataOutput  →  VideoFlashDetector
-        │         presentation PTS              │
-        │                                       ▼
-        └── AVCaptureAudioDataOutput  →  AudioPulseDetector
-                  PTS + sample offset           │
-                                                ▼
-                                      SyncMeasurementEngine
-                                                │
-                                                ├── pair nearest in ±window
-                                                ├── MeasurementStatistics
-                                                └── DiagnosticEvent log
-                                                │
-                                                ▼
-                                      MeasurementSession  →  SwiftUI
+        ├── AVCaptureVideoDataOutput  →  CaptureClock (.video)  →  VideoFlashDetector
+        │         PTS → master → host         unified seconds            │
+        │                                                               ▼
+        └── AVCaptureAudioDataOutput  →  CaptureClock (.audio)  →  AudioPulseDetector
+                  PTS → master → host         unified seconds            │
+                                                                        ▼
+                                                              SyncMeasurementEngine
+                                                                        │
+                                                                        ├── chronological 1:1 pair
+                                                                        ├── MeasurementStatistics
+                                                                        └── DiagnosticEvent log
+                                                                        │
+                                                                        ▼
+                                                              MeasurementSession  →  SwiftUI
 ```
 
 ## Capture (`CaptureManager`)
 
 - One `AVCaptureSession`.
 - Back wide camera + built-in microphone.
-- Video: bi-planar full-range YUV (`420f`). Luma is read from plane 0.
-- Audio: `AVCaptureAudioDataOutput` sample buffers.
-- **Timing rule:** `CMSampleBufferGetPresentationTimeStamp`. No `Date()`, no UI timestamps, no independent timers for the offset.
+- Video: bi-planar full-range YUV (`420f`). Luma is read from plane 0. 60 fps is requested when the active format allows it.
+- Audio: `AVCaptureAudioDataOutput` as 48 kHz mono float32.
+- **Timing rule:** `CMSampleBufferGetPresentationTimeStamp` (or output PTS), converted with `CMSyncConvertTime` from `session.masterClock` onto `CMClockGetHostTimeClock()`. `CaptureClock` then rate-maps each stream so pairing never subtracts two device clocks. No `Date()`, no UI timestamps, no independent timers for the offset.
 - Observed capture fps is estimated from a short run of video PTS deltas (display only).
+
+## Unified clock (`CaptureClock`)
+
+Each stream keeps a running timebase:
+
+```
+unified += (pts − lastPTS) × slope
+slope   = d(host) / d(pts)   // locked after ~0.6 s of observations
+```
+
+Audio is the high-resolution reference in the sense that onset is sample-accurate on that timebase; video frames are mapped onto the same host seconds. A 1000 ppm PTS-rate error (≈ 1 ms per 1 Hz beep) becomes a slope ≠ 1 and is removed. Residual mean sensor delay is a constant (ZERO / SET TRUE).
+
+Diagnostics shows video/audio slope, ppm vs host, and relative A−V ppm.
 
 ## Visual flash (`VideoFlashDetector`)
 
 No computer vision. Each frame:
 
 1. Average luminance in a configurable central square (overlaid on the preview).
-2. Maintain an EMA baseline.
-3. Fire on a rapid **positive** luminance step above a sensitivity (or manual) threshold.
-4. Latch + holdoff so one flash is one event, then re-arm.
+2. Maintain a **dark floor** updated only on quiet frames (not during the flash, not during holdoff).
+3. Fire on the **first** frame whose rise vs the previous frame clears the threshold *and* sits above the dark floor.
+4. Latch + holdoff, re-arm on the falling edge. One flash is one event.
 
 `processLuminance(_:timestampSeconds:)` is the hardware-free test hook.
 
 ## Audio pulse (`AudioPulseDetector`)
 
 1. Convert the buffer to mono float.
-2. Scan short hops for RMS / envelope versus an ambient baseline.
-3. On a sharp rise, refine onset to the first sample over threshold.
-4. Onset time = buffer media timestamp + sampleOffset.
+2. Scan short hops for RMS vs a noise floor that updates **only when quiet**.
+3. A high trigger (hysteresis) decides that a beep happened.
+4. Onset is walked back to the first sample over a **low** noise-floor multiple, so AGC cannot slide the stamp 1 ms/s.
 5. Mask for ~220 ms so reverb is not a second event.
 
 No pitch detection.
 
 ## Pairing (`SyncMeasurementEngine`)
 
-Queues unmatched flashes and pulses. Picks the nearest pair whose `|audio − video|` is inside the search window (default ±1 s). Unmatched events older than the window / max age are rejected and counted.
+Queues unmatched flashes and pulses, sorted by unified time. Oldest flash vs oldest pulse: if `|audio − video|` is inside the search window (default ±1 s) they pair; otherwise the older head expires. No nearest-neighbour stealing, no accumulating pairing debt.
 
 ```
-offsetMilliseconds = (audioPTS - videoPTS) * 1000
+offsetMilliseconds = (audioUnified − videoUnified) * 1000
 ```
 
 See `SyncSignConvention` in `SyncTypes.swift`.
@@ -67,15 +80,15 @@ See `SyncSignConvention` in `SyncTypes.swift`.
 
 ## Statistics (`MeasurementStatistics`)
 
-Keeps **all** raw paired samples. Recomputes outliers with median + MAD (`k * 1.4826 * MAD`). Snapshot: current, mean, median, min, max, sample stddev, valid count, rejected/unpaired, outlier count, stability flag, calibration.
+Keeps **all** raw paired samples. Recomputes outliers with median + MAD (`k * 1.4826 * MAD`). Snapshot: current, mean, median, min, max, sample stddev, valid count, rejected/unpaired, outlier count, stability flag, calibration, **walk ms/beep** (OLS slope of valid offsets vs index).
 
 Never promotes one event to “the answer.” The main headline uses the median of valid samples minus calibration; the last-25 table still lists each hit.
 
 ## Session and UI
 
-`MeasurementSession` owns capture, both detectors, and the engine. It hops capture callbacks onto a serial measure queue, then publishes to the main thread.
+`MeasurementSession` owns capture, both detectors, the clock, and the engine. It hops capture callbacks onto a serial measure queue, then publishes to the main thread.
 
-SwiftUI (`MeasurementView`) is dark, low-decoration, venue-friendly: preview + target, huge AUDIO EARLY/LATE + ms, recommended delay, fps/frames, stats, SYNC STABLE/UNSTABLE, Start/Stop/Reset. Settings, Diagnostics, and a Phase 2 test signal are sheets.
+SwiftUI (`MeasurementView`) is dark, low-decoration, venue-friendly: preview + target, huge AUDIO EARLY/LATE + ms, recommended delay, fps/frames, stats, SYNC STABLE/UNSTABLE, WALK ms/beep, Start/Stop/Reset. Settings, Diagnostics, and a Phase 2 test signal are sheets.
 
 ## Calibration
 
@@ -83,7 +96,9 @@ SwiftUI (`MeasurementView`) is dark, low-decoration, venue-friendly: preview + t
 
 ## Tests
 
-`AVSyncMeterTests/SyncMeasurementEngineTests.swift` is the XCTest target. `HostHarness.swift` is a macOS `@main` runner used when `xcodebuild test` cannot attach to the installed iOS 27 simulator runtime.
+`AVSyncMeterTests/SyncMeasurementEngineTests.swift` and `WalkAndClockTests.swift` are the XCTest target. `HostHarness.swift` + `SyntheticRig.swift` is a macOS `@main` runner used when `xcodebuild test` cannot attach to the installed iOS 27 simulator runtime.
+
+The harness now requires a constant synthetic offset to stay flat and a +164 ms audio step to move the median by ~164 ms. Those cases did not exist when the meter shipped a walking number.
 
 ## File map
 
@@ -91,11 +106,12 @@ SwiftUI (`MeasurementView`) is dark, low-decoration, venue-friendly: preview + t
 | --- | --- |
 | `Engine/SyncTypes.swift` | Sign convention, events, snapshot |
 | `Engine/FrameRate.swift` | 23.976–60 including 1001-family rates |
-| `Engine/VideoFlashDetector.swift` | Luma flash edge |
-| `Engine/AudioPulseDetector.swift` | Envelope onset |
-| `Engine/SyncMeasurementEngine.swift` | Pairing |
-| `Engine/MeasurementStatistics.swift` | Stats + MAD |
+| `Engine/CaptureClock.swift` | Per-stream PTS → host timebase |
+| `Engine/VideoFlashDetector.swift` | First-edge luma flash |
+| `Engine/AudioPulseDetector.swift` | Onset with frozen noise floor |
+| `Engine/SyncMeasurementEngine.swift` | Chronological 1:1 pairing |
+| `Engine/MeasurementStatistics.swift` | Stats + MAD + walk |
 | `Engine/AppSettings.swift` | UserDefaults |
 | `Engine/MeasurementSession.swift` | Glue (not the algorithm) |
-| `Capture/CaptureManager.swift` | Single AVCaptureSession |
+| `Capture/CaptureManager.swift` | Single AVCaptureSession + PTS conversion |
 | `UI/*` | SwiftUI + preview overlay |

@@ -2,7 +2,14 @@ import Foundation
 import CoreVideo
 
 /// Detects a single rapid positive luminance transition in a configurable central region.
-/// No computer vision or object recognition. One flash = one event via hysteresis / re-arm.
+///
+/// First reliable edge: the first frame whose rise vs the previous frame clears a
+/// fixed threshold *and* sits above a slow dark floor. The dark floor is updated
+/// only on quiet frames (not during the flash, not during holdoff). A lagging
+/// EMA that includes the flash is how a threshold can walk 1 ms/s; this detector
+/// does not do that.
+///
+/// One flash = one event via latch + holdoff + re-arm on the falling edge.
 final class VideoFlashDetector {
     struct Configuration {
         var regionFraction: Double = 0.35
@@ -11,11 +18,13 @@ final class VideoFlashDetector {
         var manualThreshold: Double?
         /// Frames the detector stays latched after a hit so a long flash is one event.
         var holdoffFrames: Int = 8
-        var baselineAlpha: Double = 0.08
+        /// Quiet-frame dark-floor blend. Small on purpose — this is not an onset tracker.
+        var floorAlpha: Double = 0.02
     }
 
     var configuration: Configuration
     private(set) var lastLuminance: Double = 0
+    /// Dark floor (quiet-frame only). Exposed as `baseline` for Diagnostics.
     private(set) var baseline: Double = 0
     private(set) var lastThreshold: Double = 0.12
     private var hasBaseline = false
@@ -56,30 +65,50 @@ final class VideoFlashDetector {
 
         if holdoffRemaining > 0 {
             holdoffRemaining -= 1
-            baseline = baseline * (1 - configuration.baselineAlpha) + luminance * configuration.baselineAlpha
             if holdoffRemaining == 0 {
-                armed = true
+                // Re-arm only after the field has actually fallen. A stuck-bright
+                // screen must not fire again until it goes dark.
+                if luminance < baseline + lastThreshold * 0.45 {
+                    armed = true
+                } else {
+                    armed = false
+                }
             }
             previousLuminance = luminance
             return nil
         }
 
-        let rising = luminance - previousLuminance
-        let aboveBaseline = luminance - baseline
-        let hit = armed && rising > lastThreshold && aboveBaseline > lastThreshold * 0.6
+        if !armed {
+            if luminance < baseline + lastThreshold * 0.45 {
+                armed = true
+            } else {
+                previousLuminance = luminance
+                return nil
+            }
+        }
 
-        baseline = baseline * (1 - configuration.baselineAlpha) + luminance * configuration.baselineAlpha
-        previousLuminance = luminance
+        let rising = luminance - previousLuminance
+        let aboveFloor = luminance - baseline
+        let hit = rising > lastThreshold && aboveFloor > lastThreshold * 0.5
 
         if hit {
             armed = false
             holdoffRemaining = configuration.holdoffFrames
+            previousLuminance = luminance
+            // Do not fold the flash into the dark floor.
             return VisualFlashEvent(
                 timestampSeconds: timestampSeconds,
                 luminance: luminance,
                 threshold: lastThreshold
             )
         }
+
+        // Quiet frame only: very slow dark-floor update. Never chase a rising edge.
+        if rising < lastThreshold * 0.25 {
+            let a = configuration.floorAlpha
+            baseline = baseline * (1 - a) + luminance * a
+        }
+        previousLuminance = luminance
         return nil
     }
 

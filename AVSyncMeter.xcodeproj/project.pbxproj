@@ -14,6 +14,7 @@
 		5081C36428299215FB85DEE4 /* TestSignalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80AD5F5737C8618E2AB37F9A /* TestSignalView.swift */; };
 		670AAAEC0B9ED2996E054D18 /* VideoFlashDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B0E0CD56CDB273FBBB0D3C2 /* VideoFlashDetector.swift */; };
 		6811E7FC35E7BF5B7FFFB1E1 /* SyncMeasurementEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64DDAFCF915D9EBFCE638834 /* SyncMeasurementEngine.swift */; };
+		7407AB51F0244E6C853701CF /* WalkAndClockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0853A077C817E2F165D324D3 /* WalkAndClockTests.swift */; };
 		75CA1EF196FAEB83925AECA7 /* SyncTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0A49C22356D201751D7ABA /* SyncTypes.swift */; };
 		802BA0D765B52FBF38038325 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5480388106295ED54979CB2E /* Theme.swift */; };
 		84C034DA73E809D983268C8B /* MeasurementSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE65D68D1A919561E10CF863 /* MeasurementSession.swift */; };
@@ -22,6 +23,8 @@
 		A1114D299BBA463904EE12D8 /* SyncMeasurementEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC61600FF33C1B3DA27315EE /* SyncMeasurementEngineTests.swift */; };
 		A94DDC9C9B8767ECB52D37EC /* CaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F57D7EBB1FB7D4A2B9483B3F /* CaptureManager.swift */; };
 		B0E55437956F357E558CC965 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAA2B2463B9F51ABF10892B5 /* AppSettings.swift */; };
+		B49504AD9ADDCDBDCE351E07 /* SyntheticRig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 532F017AE7976977DEEE3BA1 /* SyntheticRig.swift */; };
+		BBE001858A3BBE3421D17284 /* CaptureClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F7C7712C3B89BF52810F480 /* CaptureClock.swift */; };
 		C78E614C1A469B402F906DE4 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC4BD9485B0F3D045E9440B2 /* SettingsView.swift */; };
 		F32D4C7FA31723D0BF0868EB /* MeasurementStatistics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F910531B6ADE12E8441CEE /* MeasurementStatistics.swift */; };
 		F66F177D3B0DA32350A50056 /* AVSyncMeterApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFFBF5C04BFC0C34A8FFEAC6 /* AVSyncMeterApp.swift */; };
@@ -39,9 +42,12 @@
 
 /* Begin PBXFileReference section */
 		079A43D77619BA00639F3CA5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		0853A077C817E2F165D324D3 /* WalkAndClockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalkAndClockTests.swift; sourceTree = "<group>"; };
 		179415E275572376CB646119 /* FrameRate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameRate.swift; sourceTree = "<group>"; };
+		3F7C7712C3B89BF52810F480 /* CaptureClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureClock.swift; sourceTree = "<group>"; };
 		4A6B6583AA0879E65299F691 /* MeasurementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeasurementView.swift; sourceTree = "<group>"; };
 		4EA06932BEEA90225E747C00 /* CameraPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewView.swift; sourceTree = "<group>"; };
+		532F017AE7976977DEEE3BA1 /* SyntheticRig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntheticRig.swift; sourceTree = "<group>"; };
 		5480388106295ED54979CB2E /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		64DDAFCF915D9EBFCE638834 /* SyncMeasurementEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncMeasurementEngine.swift; sourceTree = "<group>"; };
 		7F7BA48D88CF9B2249F1C26F /* DiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsView.swift; sourceTree = "<group>"; };
@@ -92,6 +98,8 @@
 			isa = PBXGroup;
 			children = (
 				DC61600FF33C1B3DA27315EE /* SyncMeasurementEngineTests.swift */,
+				532F017AE7976977DEEE3BA1 /* SyntheticRig.swift */,
+				0853A077C817E2F165D324D3 /* WalkAndClockTests.swift */,
 			);
 			path = AVSyncMeterTests;
 			sourceTree = "<group>";
@@ -114,6 +122,7 @@
 			children = (
 				CAA2B2463B9F51ABF10892B5 /* AppSettings.swift */,
 				8579D71EEE55B8290259BF11 /* AudioPulseDetector.swift */,
+				3F7C7712C3B89BF52810F480 /* CaptureClock.swift */,
 				179415E275572376CB646119 /* FrameRate.swift */,
 				EE65D68D1A919561E10CF863 /* MeasurementSession.swift */,
 				A1F910531B6ADE12E8441CEE /* MeasurementStatistics.swift */,
@@ -231,6 +240,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1114D299BBA463904EE12D8 /* SyncMeasurementEngineTests.swift in Sources */,
+				B49504AD9ADDCDBDCE351E07 /* SyntheticRig.swift in Sources */,
+				7407AB51F0244E6C853701CF /* WalkAndClockTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -242,6 +253,7 @@
 				B0E55437956F357E558CC965 /* AppSettings.swift in Sources */,
 				1AEEF92E32ABB5D39960AC5C /* AudioPulseDetector.swift in Sources */,
 				0131B018C87079A5676F4F38 /* CameraPreviewView.swift in Sources */,
+				BBE001858A3BBE3421D17284 /* CaptureClock.swift in Sources */,
 				A94DDC9C9B8767ECB52D37EC /* CaptureManager.swift in Sources */,
 				927D0BEAC67A49490D049227 /* DiagnosticsView.swift in Sources */,
 				0351A1BDC4A66C5460C3860F /* FrameRate.swift in Sources */,
@@ -302,7 +314,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 98944N7X3Y;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -317,7 +329,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				MARKETING_VERSION = 0.1.1;
+				MARKETING_VERSION = 0.1.2;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -421,7 +433,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 98944N7X3Y;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -442,7 +454,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				MARKETING_VERSION = 0.1.1;
+				MARKETING_VERSION = 0.1.2;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

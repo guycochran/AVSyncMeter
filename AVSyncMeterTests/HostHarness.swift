@@ -184,6 +184,94 @@ struct HostHarness {
             expect(abs((e.snapshot().correctedMedianMilliseconds ?? 0) - 190) < 0.01, "headline median minus cal")
         }
 
+        // MARK: - Constant offset must not climb (the walking-number tests)
+
+        func runSyntheticPass(trueOffsetMs: Double, events: Int = 36, agcDecayPerSecond: Double = 0) -> [Double] {
+            SyntheticRig.run(trueOffsetMs: trueOffsetMs, events: events, agcDecayPerSecond: agcDecayPerSecond)
+        }
+
+        for trueMs in [0.0, 50.0, -80.0] {
+            let offsets = runSyntheticPass(trueOffsetMs: trueMs)
+            let n = offsets.count
+            let med = n == 0 ? 0 : MeasurementStatistics.median(offsets)
+            let walk = MeasurementStatistics.walkMsPerEvent(offsets) ?? 999
+            let span = (offsets.max() ?? 0) - (offsets.min() ?? 0)
+            expect(n >= 30, "constant \(Int(trueMs)) ms: enough events", "n=\(n)")
+            expect(abs(med - trueMs) < 3.0, "constant \(Int(trueMs)) ms: median near true", String(format: "median %.3f walk %.4f n=%d", med, walk, n))
+            expect(abs(walk) < 0.15, "constant \(Int(trueMs)) ms: walk ≪ 1 ms/event", String(format: "walk %.4f ms/event span %.3f", walk, span))
+            expect(span < 5.0, "constant \(Int(trueMs)) ms: span small", String(format: "span %.3f", span))
+        }
+
+        do {
+            let pre = runSyntheticPass(trueOffsetMs: 0, events: 10)
+            let post = runSyntheticPass(trueOffsetMs: 164, events: 30)
+            let medPre = MeasurementStatistics.median(pre)
+            let medPost = MeasurementStatistics.median(post)
+            expect(pre.count >= 8 && abs(medPre) < 3, "step pre: ~0 ms", String(format: "n=%d med=%.3f", pre.count, medPre))
+            expect(post.count >= 20 && abs(medPost - 164) < 3, "step post: ~164 ms", String(format: "n=%d med=%.3f", post.count, medPost))
+            expect(abs((medPost - medPre) - 164) < 4, "step: median jumps by ~164 ms", String(format: "delta %.3f", medPost - medPre))
+        }
+
+        do {
+            // Same 36-event pass, audio amplitude decays 3%/s (AGC). Onset must not walk 1 ms/beep.
+            let offsets = runSyntheticPass(trueOffsetMs: 50, events: 36, agcDecayPerSecond: 0.03)
+            let walk = MeasurementStatistics.walkMsPerEvent(offsets) ?? 999
+            expect(offsets.count >= 20, "AGC pass produced events", "n=\(offsets.count)")
+            expect(abs(walk) < 0.25, "AGC cannot walk 1 ms/event", String(format: "walk %.4f n=%d", walk, offsets.count))
+            expect(abs(MeasurementStatistics.median(offsets) - 50) < 5, "AGC median still ~50", String(format: "med %.3f", MeasurementStatistics.median(offsets)))
+        }
+
+        do {
+            // Document the old bug: raw PTS subtraction with 1000 ppm audio-fast walks ~1 ms/s.
+            var raw: [Double] = []
+            for i in 0..<30 {
+                let hostV = Double(i)
+                let hostA = Double(i) + 0.011
+                let audioPTS = hostA * 1.001
+                raw.append((audioPTS - hostV) * 1000)
+            }
+            let rawWalk = MeasurementStatistics.walkMsPerEvent(raw) ?? 0
+            expect(abs(rawWalk - 1.0) < 0.05, "raw 1000 ppm walk is ~1 ms/event (the old bug)", String(format: "walk %.4f first %.3f last %.3f", rawWalk, raw.first ?? 0, raw.last ?? 0))
+
+            let clock = CaptureClock()
+            // Warm up both fits with 60 fps video + 100 Hz audio buffers over 8 s.
+            var t = 0.0
+            while t <= 8.0 {
+                _ = clock.observe(stream: .video, ptsSeconds: t, hostSeconds: t)
+                t += 1.0 / 60.0
+            }
+            t = 0.0
+            while t <= 8.0 {
+                let audioPTS = t * 1.001
+                _ = clock.observe(stream: .audio, ptsSeconds: audioPTS, hostSeconds: t)
+                t += 0.01
+            }
+            var unified: [Double] = []
+            for i in 8..<40 {
+                let hostV = Double(i)
+                let hostA = Double(i) + 0.050
+                // Keep feeding the timebase so interpolation stays local.
+                _ = clock.observe(stream: .video, ptsSeconds: hostV, hostSeconds: hostV)
+                _ = clock.observe(stream: .audio, ptsSeconds: hostA * 1.001, hostSeconds: hostA)
+                let vU = clock.unified(stream: .video, ptsSeconds: hostV)
+                let aU = clock.unified(stream: .audio, ptsSeconds: hostA * 1.001)
+                unified.append((aU - vU) * 1000)
+            }
+            let uWalk = MeasurementStatistics.walkMsPerEvent(unified) ?? 999
+            let uMed = MeasurementStatistics.median(unified)
+            expect(abs(uWalk) < 0.15, "CaptureClock flattens 1000 ppm walk", String(format: "walk %.4f med %.3f first %.3f last %.3f", uWalk, uMed, unified.first ?? 0, unified.last ?? 0))
+            expect(abs(uMed - 50) < 3, "CaptureClock preserves +50 ms true offset", String(format: "med %.3f", uMed))
+        }
+
+        do {
+            let e = engine()
+            for i in 0..<20 {
+                _ = pair(e, tVideo: Double(i), tAudio: Double(i) + 0.050)
+            }
+            let walk = e.snapshot().walkMsPerEvent ?? 999
+            expect(abs(walk) < 0.001, "engine walk on constant injected pairs is 0", String(format: "walk %.6f", walk))
+        }
+
         if failed == 0 {
             print("ALL HARNESS TESTS PASSED")
         } else {

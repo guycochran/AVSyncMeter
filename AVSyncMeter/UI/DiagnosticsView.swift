@@ -14,6 +14,24 @@ struct DiagnosticsView: View {
                     labeled("Capture fps", String(format: "%.2f", session.capture.observedVideoFPS))
                     labeled("Valid / rejected", "\(session.snapshot.validCount) / \(session.snapshot.rejectedCount)")
                     labeled("Outliers", "\(session.snapshot.outlierCount)")
+                    if let walk = session.snapshot.walkMsPerEvent {
+                        labeled("Walk", String(format: "%+.3f ms/beep", walk))
+                    } else {
+                        labeled("Walk", "need ≥8 valid")
+                    }
+                }
+
+                Section("Capture clocks") {
+                    let c = session.clockSnapshot
+                    labeled("Locked", c.locked ? "yes" : "no")
+                    labeled("Video slope host/pts", String(format: "%.6f  n=%d", c.videoSlope, c.videoObservations))
+                    labeled("Audio slope host/pts", String(format: "%.6f  n=%d", c.audioSlope, c.audioObservations))
+                    labeled("Video PTS vs host", String(format: "%+.0f ppm", c.videoPpmVersusHost))
+                    labeled("Audio PTS vs host", String(format: "%+.0f ppm", c.audioPpmVersusHost))
+                    labeled("Relative A−V", String(format: "%+.0f ppm", c.relativeDriftPPM))
+                    Text("Pairing uses these unified times, not raw cross-stream PTS. A few hundred ppm of leftover source-clock error is honest. ~1000 ppm (~1 ms per 1 Hz beep) on a constant delay is a meter bug.")
+                        .font(.system(.footnote, design: .monospaced))
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("Sign convention") {

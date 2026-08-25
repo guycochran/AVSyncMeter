@@ -16,6 +16,7 @@ final class MeasurementSession: ObservableObject {
     let flashDetector = VideoFlashDetector()
     let pulseDetector = AudioPulseDetector()
     let engine = SyncMeasurementEngine()
+    let captureClock = CaptureClock()
 
     @Published var runState: RunState = .idle
     @Published var snapshot: MeasurementSnapshot = .empty
@@ -25,6 +26,7 @@ final class MeasurementSession: ObservableObject {
     @Published var captureError: String?
     @Published var statusNote: String = "Idle"
     @Published var diagnostics: [DiagnosticEvent] = []
+    @Published var clockSnapshot: ClockSnapshot = .empty
 
     private var cancellables = Set<AnyCancellable>()
     private let measureQueue = DispatchQueue(label: "com.guycochran.avsyncmeter.measure")
@@ -47,10 +49,10 @@ final class MeasurementSession: ObservableObject {
             }
             .store(in: &cancellables)
 
-        capture.onVideoBuffer = { [weak self] buffer in
+        capture.onVideoBuffer = { [weak self] buffer, _ in
             self?.handleVideo(buffer)
         }
-        capture.onAudioBuffer = { [weak self] buffer in
+        capture.onAudioBuffer = { [weak self] buffer, _ in
             self?.handleAudio(buffer)
         }
     }
@@ -74,9 +76,11 @@ final class MeasurementSession: ObservableObject {
             engine.reset()
             flashDetector.reset()
             pulseDetector.reset()
+            captureClock.reset()
         }
         lastSample = nil
         snapshot = engine.snapshot()
+        clockSnapshot = .empty
         diagnostics = []
         statusNote = runState == .idle ? "Reset" : "LISTENING"
     }
@@ -169,11 +173,15 @@ final class MeasurementSession: ObservableObject {
     }
 
     private func handleVideo(_ buffer: CMSampleBuffer) {
-        let pts = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(buffer))
-        guard pts.isFinite, let image = CMSampleBufferGetImageBuffer(buffer) else { return }
+        guard let image = CMSampleBufferGetImageBuffer(buffer) else { return }
+        let host = CaptureManager.hostNowSeconds()
+        let pts = CaptureManager.hostMappedPTS(sampleBuffer: buffer, session: capture.session)
+            ?? CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(buffer))
+        guard pts.isFinite, host.isFinite else { return }
         measureQueue.async { [weak self] in
             guard let self else { return }
-            if let flash = self.flashDetector.processPixelBuffer(image, timestampSeconds: pts) {
+            let unified = self.captureClock.observe(stream: .video, ptsSeconds: pts, hostSeconds: host)
+            if let flash = self.flashDetector.processPixelBuffer(image, timestampSeconds: unified) {
                 _ = self.engine.ingestFlash(flash)
             }
             let luma = self.flashDetector.lastLuminance
@@ -182,9 +190,14 @@ final class MeasurementSession: ObservableObject {
     }
 
     private func handleAudio(_ buffer: CMSampleBuffer) {
+        let host = CaptureManager.hostNowSeconds()
+        let pts = CaptureManager.hostMappedPTS(sampleBuffer: buffer, session: capture.session)
+            ?? CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(buffer))
+        guard pts.isFinite, host.isFinite else { return }
         measureQueue.async { [weak self] in
             guard let self else { return }
-            if let pulse = self.pulseDetector.processSampleBuffer(buffer) {
+            let unifiedStart = self.captureClock.observe(stream: .audio, ptsSeconds: pts, hostSeconds: host)
+            if let pulse = self.pulseDetector.processSampleBuffer(buffer, bufferStartOverride: unifiedStart) {
                 _ = self.engine.ingestPulse(pulse)
             }
             let level = self.pulseDetector.lastEnvelope
@@ -199,10 +212,12 @@ final class MeasurementSession: ObservableObject {
         let snap = engine.snapshot()
         let last = engine.statistics.rawSamples.last
         let logs = engine.diagnostics
+        let clock = captureClock.snapshot()
         DispatchQueue.main.async {
             self.snapshot = snap
             self.lastSample = last
             self.diagnostics = logs
+            self.clockSnapshot = clock
             if let luminance { self.liveLuminance = luminance }
             if snap.validCount > 0 {
                 self.runState = .measuring

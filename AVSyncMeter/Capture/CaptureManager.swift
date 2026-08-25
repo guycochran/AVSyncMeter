@@ -3,9 +3,9 @@ import Foundation
 
 /// Single AVCaptureSession delivering synchronized video + audio sample buffers.
 ///
-/// Timing rule: every detection uses the buffer's presentation timestamp
-/// (`CMSampleBufferGetPresentationTimeStamp`). Date(), UI timestamps, and
-/// independent timers are not used for measurement.
+/// Timing rule: detectors never see Date() or UI timestamps. Each buffer's
+/// presentation timestamp is converted onto the session master clock → host
+/// clock, then CaptureClock rate-maps it so audio and video share one timeline.
 final class CaptureManager: NSObject, ObservableObject {
     enum CaptureError: LocalizedError {
         case cameraDenied
@@ -37,8 +37,8 @@ final class CaptureManager: NSObject, ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var observedVideoFPS: Double = 0
 
-    var onVideoBuffer: ((CMSampleBuffer) -> Void)?
-    var onAudioBuffer: ((CMSampleBuffer) -> Void)?
+    var onVideoBuffer: ((CMSampleBuffer, AVCaptureConnection) -> Void)?
+    var onAudioBuffer: ((CMSampleBuffer, AVCaptureConnection) -> Void)?
 
     private var videoFrameTimes: [Double] = []
 
@@ -100,6 +100,7 @@ final class CaptureManager: NSObject, ObservableObject {
             session.commitConfiguration()
             throw CaptureError.noCamera
         }
+        Self.lockFrameRateIfPossible(camera)
         let cameraInput = try AVCaptureDeviceInput(device: camera)
         guard session.canAddInput(cameraInput) else {
             session.commitConfiguration()
@@ -134,6 +135,8 @@ final class CaptureManager: NSObject, ObservableObject {
             connection.videoRotationAngle = 90
         }
 
+        // AVCaptureAudioDataOutput.audioSettings is macOS-only. Parse whatever
+        // Linear PCM iOS delivers (AudioPulseDetector.parseMono).
         audioOutput.setSampleBufferDelegate(self, queue: outputQueue)
         guard session.canAddOutput(audioOutput) else {
             session.commitConfiguration()
@@ -145,6 +148,20 @@ final class CaptureManager: NSObject, ObservableObject {
         configured = true
     }
 
+    private static func lockFrameRateIfPossible(_ camera: AVCaptureDevice) {
+        do {
+            try camera.lockForConfiguration()
+            defer { camera.unlockForConfiguration() }
+            let ranges = camera.activeFormat.videoSupportedFrameRateRanges
+            if ranges.contains(where: { $0.maxFrameRate >= 59.0 }) {
+                camera.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 60)
+                camera.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 60)
+            }
+        } catch {
+            // Frame-rate lock is a preference, not a requirement.
+        }
+    }
+
     private static func bestCamera() -> AVCaptureDevice? {
         let discovery = AVCaptureDevice.DiscoverySession(
             deviceTypes: [.builtInWideAngleCamera, .builtInTripleCamera, .builtInDualWideCamera],
@@ -152,6 +169,28 @@ final class CaptureManager: NSObject, ObservableObject {
             position: .back
         )
         return discovery.devices.first ?? AVCaptureDevice.default(for: .video)
+    }
+
+    /// Convert a sample buffer PTS onto the host clock using the session master clock.
+    static func hostMappedPTS(sampleBuffer: CMSampleBuffer, session: AVCaptureSession) -> Double? {
+        let raw = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        let output = CMSampleBufferGetOutputPresentationTimeStamp(sampleBuffer)
+        let pts = (output.isValid && output.isNumeric) ? output : raw
+        guard pts.isNumeric else { return nil }
+
+        if let master = session.synchronizationClock {
+            let converted = CMSyncConvertTime(pts, from: master, to: CMClockGetHostTimeClock())
+            if converted.isNumeric {
+                let s = CMTimeGetSeconds(converted)
+                if s.isFinite { return s }
+            }
+        }
+        let s = CMTimeGetSeconds(pts)
+        return s.isFinite ? s : nil
+    }
+
+    static func hostNowSeconds() -> Double {
+        CMTimeGetSeconds(CMClockGetTime(CMClockGetHostTimeClock()))
     }
 }
 
@@ -170,9 +209,9 @@ extension CaptureManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptur
                     videoFrameTimes.removeAll(keepingCapacity: true)
                 }
             }
-            onVideoBuffer?(sampleBuffer)
+            onVideoBuffer?(sampleBuffer, connection)
         } else if output === audioOutput {
-            onAudioBuffer?(sampleBuffer)
+            onAudioBuffer?(sampleBuffer, connection)
         }
     }
 }

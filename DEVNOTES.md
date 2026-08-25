@@ -21,16 +21,18 @@ xcrun simctl install 3781E203-7DCA-417E-A2DB-77F6A8A823E7 \
 xcrun simctl launch 3781E203-7DCA-417E-A2DB-77F6A8A823E7 com.guycochran.AVSyncMeter
 ```
 
-Engine tests (no hardware):
+Engine tests (no hardware). A constant offset must stay flat; a synthetic N ms delay must move the median by N:
 
 ```bash
 swiftc -sdk "$(xcrun --sdk macosx --show-sdk-path)" \
   AVSyncMeter/Engine/FrameRate.swift \
   AVSyncMeter/Engine/SyncTypes.swift \
   AVSyncMeter/Engine/MeasurementStatistics.swift \
+  AVSyncMeter/Engine/CaptureClock.swift \
   AVSyncMeter/Engine/VideoFlashDetector.swift \
   AVSyncMeter/Engine/AudioPulseDetector.swift \
   AVSyncMeter/Engine/SyncMeasurementEngine.swift \
+  AVSyncMeterTests/SyntheticRig.swift \
   AVSyncMeterTests/HostHarness.swift \
   -o /tmp/AVSyncMeterHostTests && /tmp/AVSyncMeterHostTests
 ```
@@ -51,3 +53,7 @@ Guy reported it worked and the reading looked right. Do not download, commit, or
 ## Mid-show calibrate / zero
 
 On a known-good source, tap **ZERO** on the main meter (not only the Settings slider). That stores `calibrationOffset = measuredOffset − 0` from the median of valid samples (or the current pair) and applies it immediately; displayed offset and Mitti delay use `measured − calibration`. **SET TRUE** uses a known true offset instead of 0. **CLEAR** returns to none applied (0), which is not “sensor latency is zero.” **UNDO LAST CAL** restores the previous stored value once.
+
+## Measurement core rewrite (build 5)
+
+Video PTS and audio PTS are no longer subtracted raw. `CaptureClock` maps each stream onto host seconds. Detectors stamp the first flash edge and the beep onset (not a lagging adaptive baseline). Pairing is chronological 1:1. Do not install this build on the phone until Guy re-tests; do not upload TestFlight until he says so.

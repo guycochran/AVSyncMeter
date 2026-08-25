@@ -93,8 +93,26 @@ struct MeasurementStatistics {
             isStable: stable,
             calibrationOffsetMilliseconds: calibrationOffsetMilliseconds,
             calibrationApplied: applied,
-            recentValidSamples: recentValidSamples()
+            recentValidSamples: recentValidSamples(),
+            walkMsPerEvent: Self.walkMsPerEvent(valid)
         )
+    }
+
+    /// Ordinary-least-squares slope of offset vs index, milliseconds per event.
+    /// A constant delay must be ≪ 1 ms/event. Nil if n < 8.
+    static func walkMsPerEvent(_ offsets: [Double]) -> Double? {
+        guard offsets.count >= 8 else { return nil }
+        let n = Double(offsets.count)
+        let sumX = (n - 1) * n / 2
+        let sumXX = (n - 1) * n * (2 * n - 1) / 6
+        let sumY = offsets.reduce(0, +)
+        var sumXY = 0.0
+        for (i, y) in offsets.enumerated() {
+            sumXY += Double(i) * y
+        }
+        let det = n * sumXX - sumX * sumX
+        guard abs(det) > 1e-12 else { return nil }
+        return (n * sumXY - sumX * sumY) / det
     }
 
     static func median(_ values: [Double]) -> Double {
