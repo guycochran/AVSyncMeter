@@ -357,11 +357,12 @@ struct MeasurementView: View {
         let window = MeterHistory.clampedWindow(settings.meterHistorySeconds)
         let now = session.meterHistory.lastTimestamp
         return VStack(alignment: .leading, spacing: 3) {
-            Text(String(format: "VU  last %.0fs  ·  newest right", window))
+            Text(String(format: "VU  last %.0fs  ·  live luma/mic  ·  newest right", window))
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(VenueTheme.dim)
             vuStrip(label: "LUMA", color: VenueTheme.meter, now: now, window: window, luma: true)
             vuStrip(label: "MIC ", color: VenueTheme.late, now: now, window: window, luma: false)
+            vuMarkLane(now: now, window: window)
             HStack {
                 Text(String(format: "−%.0fs", window))
                 Spacer()
@@ -369,12 +370,28 @@ struct MeasurementView: View {
             }
             .font(.system(size: 9, weight: .semibold, design: .monospaced))
             .foregroundStyle(VenueTheme.dim)
+            HStack(spacing: 10) {
+                legendSwatch(VenueTheme.meter, "FLASH")
+                legendSwatch(VenueTheme.late, "AUDIOPULSE")
+                legendSwatch(VenueTheme.early, "PAIR")
+            }
+            .font(.system(size: 9, weight: .semibold, design: .monospaced))
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(VenueTheme.panel)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+
+    private func legendSwatch(_ color: Color, _ label: String) -> some View {
+        HStack(spacing: 4) {
+            Rectangle()
+                .fill(color)
+                .frame(width: 8, height: 8)
+            Text(label)
+                .foregroundStyle(VenueTheme.dim)
+        }
     }
 
     private func vuStrip(label: String, color: Color, now: Double, window: Double, luma: Bool) -> some View {
@@ -388,6 +405,7 @@ struct MeasurementView: View {
                 let cols = luma
                     ? session.meterHistory.lumaColumns(now: now, windowSeconds: window, count: n)
                     : session.meterHistory.micColumns(now: now, windowSeconds: window, count: n)
+                let marks = session.meterHistory.markKindsByColumn(now: now, windowSeconds: window, count: n)
                 Canvas { context, size in
                     let h = size.height
                     let w = size.width
@@ -400,9 +418,69 @@ struct MeasurementView: View {
                         let rect = CGRect(x: CGFloat(i) * barW, y: h - vh, width: max(barW, 1), height: vh)
                         context.fill(Path(rect), with: .color(color))
                     }
+                    for (i, kinds) in marks.enumerated() {
+                        let x = CGFloat(i) * barW + barW * 0.5
+                        if luma, kinds.contains(.flash) {
+                            var tri = Path()
+                            tri.move(to: CGPoint(x: x, y: 0))
+                            tri.addLine(to: CGPoint(x: x - 3.5, y: 7))
+                            tri.addLine(to: CGPoint(x: x + 3.5, y: 7))
+                            tri.closeSubpath()
+                            context.fill(tri, with: .color(.white))
+                        }
+                        if !luma, kinds.contains(.audioPulse) {
+                            var tri = Path()
+                            tri.move(to: CGPoint(x: x, y: 0))
+                            tri.addLine(to: CGPoint(x: x - 3.5, y: 7))
+                            tri.addLine(to: CGPoint(x: x + 3.5, y: 7))
+                            tri.closeSubpath()
+                            context.fill(tri, with: .color(.white))
+                        }
+                        if kinds.contains(.pair) {
+                            let rect = CGRect(x: x - 1, y: 0, width: 2, height: h)
+                            context.fill(Path(rect), with: .color(VenueTheme.early.opacity(0.9)))
+                        }
+                    }
                 }
             }
-            .frame(height: 28)
+            .frame(height: 36)
+        }
+    }
+
+    private func vuMarkLane(now: Double, window: Double) -> some View {
+        HStack(spacing: 8) {
+            Text("EVT ")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(VenueTheme.dim)
+                .frame(width: 44, alignment: .leading)
+            GeometryReader { geo in
+                let n = max(Int(geo.size.width.rounded()), 1)
+                let marks = session.meterHistory.markKindsByColumn(now: now, windowSeconds: window, count: n)
+                Canvas { context, size in
+                    let h = size.height
+                    let w = size.width
+                    context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color.black.opacity(0.35)))
+                    guard n > 0, w > 0, h > 0 else { return }
+                    let barW = w / CGFloat(n)
+                    for (i, kinds) in marks.enumerated() {
+                        let x = CGFloat(i) * barW + barW * 0.5
+                        let tickW = max(2.5, barW)
+                        if kinds.contains(.flash) {
+                            let rect = CGRect(x: x - tickW * 0.5, y: 1, width: tickW, height: h * 0.45)
+                            context.fill(Path(rect), with: .color(VenueTheme.meter))
+                        }
+                        if kinds.contains(.audioPulse) {
+                            let rect = CGRect(x: x - tickW * 0.5, y: h * 0.5, width: tickW, height: h * 0.45)
+                            context.fill(Path(rect), with: .color(VenueTheme.late))
+                        }
+                        if kinds.contains(.pair) {
+                            let rect = CGRect(x: x - 1, y: 0, width: 2, height: h)
+                            context.fill(Path(rect), with: .color(VenueTheme.early))
+                        }
+                    }
+                }
+            }
+            .frame(height: 14)
         }
     }
 

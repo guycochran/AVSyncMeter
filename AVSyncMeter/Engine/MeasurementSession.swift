@@ -188,15 +188,19 @@ final class MeasurementSession: ObservableObject {
             // Session-mapped PTS is already host time. Do not fit against
             // callback hostNow — that double map jitters the slope.
             let unified = self.captureClock.observe(stream: .video, ptsSeconds: pts, hostSeconds: pts)
+            var marks: [MeterHistory.MarkKind] = []
             if let flash = self.flashDetector.processPixelBuffer(image, timestampSeconds: unified) {
+                marks.append(.flash)
                 if self.captureClock.acceptDetectedEvent(stream: .video) {
-                    _ = self.engine.ingestFlash(flash)
+                    if self.engine.ingestFlash(flash) != nil {
+                        marks.append(.pair)
+                    }
                 } else {
                     self.engine.noteHeldForClock(flash: flash, pulse: nil)
                 }
             }
             let luma = self.flashDetector.lastLuminance
-            self.publishEngine(luminance: luma)
+            self.publishEngine(luminance: luma, marks: marks)
         }
     }
 
@@ -207,24 +211,23 @@ final class MeasurementSession: ObservableObject {
         measureQueue.async { [weak self] in
             guard let self else { return }
             let unifiedStart = self.captureClock.observe(stream: .audio, ptsSeconds: pts, hostSeconds: pts)
+            var marks: [MeterHistory.MarkKind] = []
             if let pulse = self.pulseDetector.processSampleBuffer(buffer, bufferStartOverride: unifiedStart) {
+                marks.append(.audioPulse)
                 if self.captureClock.acceptDetectedEvent(stream: .audio) {
-                    _ = self.engine.ingestPulse(pulse)
+                    if self.engine.ingestPulse(pulse) != nil {
+                        marks.append(.pair)
+                    }
                 } else {
                     self.engine.noteHeldForClock(flash: nil, pulse: pulse)
                 }
             }
             let level = self.pulseDetector.lastEnvelope
-            let hostT = CFAbsoluteTimeGetCurrent()
-            DispatchQueue.main.async {
-                self.liveAudioLevel = level
-                self.meterHistory.appendMic(t: hostT, value: min(1, level * 4))
-            }
-            self.publishEngine()
+            self.publishEngine(audioLevel: level, marks: marks)
         }
     }
 
-    private func publishEngine(luminance: Double? = nil) {
+    private func publishEngine(luminance: Double? = nil, audioLevel: Double? = nil, marks: [MeterHistory.MarkKind] = []) {
         let snap = engine.snapshot()
         let last = engine.statistics.rawSamples.last
         let logs = engine.diagnostics
@@ -234,9 +237,17 @@ final class MeasurementSession: ObservableObject {
             self.lastSample = last
             self.diagnostics = logs
             self.clockSnapshot = clock
+            let hostT = CFAbsoluteTimeGetCurrent()
             if let luminance {
                 self.liveLuminance = luminance
-                self.meterHistory.appendLuma(t: CFAbsoluteTimeGetCurrent(), value: luminance)
+                self.meterHistory.appendLuma(t: hostT, value: luminance)
+            }
+            if let audioLevel {
+                self.liveAudioLevel = audioLevel
+                self.meterHistory.appendMic(t: hostT, value: min(1, audioLevel * 4))
+            }
+            for kind in marks {
+                self.meterHistory.appendMark(t: hostT, kind: kind)
             }
             if !clock.settled && self.runState != .idle && snap.validCount == 0 {
                 self.statusNote = "CLOCK SETTLING"

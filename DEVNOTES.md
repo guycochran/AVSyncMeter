@@ -148,11 +148,11 @@ HostHarness: silent-ch0 stereo recovers PA-scale RMS; int32 true scale; 89% PA-s
 
 ## Build 15 (scrolling LUMA + MIC VU)
 
-Guy asked for a history strip so a pass is not just a live needle: did luma flashes and mic pulses actually happen. Measure screen keeps the live LUMA/MIC bars and adds two compact peak-held traces of the last 1–90 s (default 90 s, newest at the right). Duration lives in SET → Meters. RESET clears the strip. Display only — does not feed pairing.
+Guy asked for a history strip so a pass is not just a live needle: did luma flashes and mic pulses actually happen. A failed pairing pass must not look empty. Measure screen keeps the live LUMA/MIC bars and adds two compact peak-held traces of the last 1–90 s (default 90 s, newest at the right), fed from the same live luma/mic as the needles — never from valid pairs. Overlay FLASH / AUDIOPULSE / PAIR marks so a full-green beep that did not pair is visible (MIC spike + AUDIOPULSE mark, FLASH mark, no PAIR). Duration lives in SET → Meters. RESET clears the strip. Display only — does not feed pairing.
 
 This is spike-then-pair debug, not a deaf-mic fix: upstairs MIC was live (full green on every PA beep; DIAG 0.001 is between hits, UI is liveAudioLevel × 4). Fail is pairing/gating. Do not bump gain. Do not revert (14) mic-path files.
 
 Keeps (14) mic path (loudest-channel mix, measurement session, 89% PA onset), stage-noise reject, honest NTSC lock, SIG PCM beep, CaptureClock freeze / relative A−V, pair ±400 ms, no AE lock. Do not install. Do not launch. No TestFlight.
 
-HostHarness: default window 90 s (clamp 1–90); 1-frame luma flash and mic pulse peak-hold at NOW (right); 90 s window keeps a spike from 90 s ago; samples older than the window vanish; RESET clears; traces stay independent.
+HostHarness: default window 90 s (clamp 1–90); live luma/mic recorded with zero pairs; FLASH+AUDIOPULSE marks without PAIR; PAIR mark only when paired; 1-frame luma flash and mic pulse peak-hold at NOW (right); 90 s window keeps a spike from 90 s ago; samples older than the window vanish; RESET clears samples and marks; traces stay independent.
 

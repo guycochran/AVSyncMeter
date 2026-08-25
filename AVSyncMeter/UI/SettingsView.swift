@@ -94,7 +94,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading) {
                         Text(String(format: "VU history %.0f s", settings.meterHistorySeconds))
                         Slider(value: $settings.meterHistorySeconds, in: MeterHistory.minWindowSeconds...MeterHistory.maxWindowSeconds, step: 1)
-                        Text("Scrolling LUMA + MIC of the last 1–90 seconds on the measure screen. Newest at the right. Default 90 s.")
+                        Text("Scrolling LUMA + MIC of the last 1–90 seconds, live from the needles (not pairs). FLASH / AUDIOPULSE / PAIR marks overlay so an unpaired beep still shows. Newest at the right. Default 90 s.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }

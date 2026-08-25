@@ -273,4 +273,38 @@ final class FrameRateTests: XCTestCase {
         XCTAssertEqual(h.lumaCount, 0)
         XCTAssertEqual(h.micCount, 0)
     }
+
+    func testMeterHistoryRecordsLiveLevelsWithZeroPairs() {
+        let h = MeterHistory()
+        let e = SyncMeasurementEngine()
+        for i in 0..<20 {
+            let t = Double(i) * 0.05
+            h.appendLuma(t: t, value: i == 10 ? 0.95 : 0.08)
+            h.appendMic(t: t, value: i == 12 ? 0.90 : 0.03)
+        }
+        XCTAssertEqual(e.snapshot().validCount, 0)
+        XCTAssertEqual(h.markCount, 0)
+        let luma = h.lumaColumns(now: 1, windowSeconds: 1, count: 20)
+        let mic = h.micColumns(now: 1, windowSeconds: 1, count: 20)
+        XCTAssertTrue(luma.contains(where: { $0 > 0.8 }))
+        XCTAssertTrue(mic.contains(where: { $0 > 0.8 }))
+        XCTAssertTrue(h.marks(now: 1, windowSeconds: 90).isEmpty)
+        XCTAssertEqual(MeterHistory.defaultWindowSeconds, 90, accuracy: 1e-9)
+    }
+
+    func testMeterHistoryFlashAudioPulseMarksWithoutPair() {
+        let h = MeterHistory()
+        h.appendLuma(t: 10, value: 0.95)
+        h.appendMic(t: 10.08, value: 0.85)
+        h.appendMark(t: 10, kind: .flash)
+        h.appendMark(t: 10.08, kind: .audioPulse)
+        let ms = h.marks(now: 11, windowSeconds: 90)
+        XCTAssertTrue(ms.contains(where: { $0.kind == .flash }))
+        XCTAssertTrue(ms.contains(where: { $0.kind == .audioPulse }))
+        XCTAssertFalse(ms.contains(where: { $0.kind == .pair }))
+        h.appendMark(t: 10.08, kind: .pair)
+        XCTAssertTrue(h.marks(now: 11, windowSeconds: 90).contains(where: { $0.kind == .pair }))
+        h.reset()
+        XCTAssertEqual(h.markCount, 0)
+    }
 }

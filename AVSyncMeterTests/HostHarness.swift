@@ -1517,7 +1517,7 @@ struct HostHarness {
         }
 
 
-        // MARK: - Build 15: scrolling LUMA+MIC VU of the last 1–90 s
+        // MARK: - Build 15: scrolling LUMA+MIC VU of the last 1–90 s (pair-independent + event marks)
 
         do {
             expect(abs(MeterHistory.defaultWindowSeconds - 90) < 1e-9, "VU default window is 90 s")
@@ -1589,6 +1589,67 @@ struct HostHarness {
             let mic = h.micColumns(now: 6.0, windowSeconds: 6, count: 6)
             expect(luma[5] > 0.8, "luma trace shows the flash", String(format: "luma5=%.3f", luma[5]))
             expect(mic[5] < 0.1, "mic trace stays independent of luma", String(format: "mic5=%.3f", mic[5]))
+        }
+
+        do {
+            // Pair-independent: live luma/mic fill the strip with ZERO pairs.
+            let h = MeterHistory()
+            let e = engine()
+            for i in 0..<20 {
+                let t = Double(i) * 0.05
+                h.appendLuma(t: t, value: i == 10 ? 0.95 : 0.08)
+                h.appendMic(t: t, value: i == 12 ? 0.90 : 0.03)
+            }
+            expect(e.snapshot().validCount == 0, "engine has zero pairs")
+            expect(h.markCount == 0, "no PAIR/FLASH/AUDIOPULSE marks appended")
+            let luma = h.lumaColumns(now: 1.0, windowSeconds: 1, count: 20)
+            let mic = h.micColumns(now: 1.0, windowSeconds: 1, count: 20)
+            expect(luma.contains(where: { $0 > 0.8 }), "luma strip records a flash-level sample with zero pairs")
+            expect(mic.contains(where: { $0 > 0.8 }), "mic strip records a beep-level sample with zero pairs")
+            expect(h.marks(now: 1.0, windowSeconds: 90).isEmpty, "marks stay empty when only live levels are recorded")
+        }
+
+        do {
+            // FLASH + AUDIOPULSE can exist without PAIR (full-green beep that did not pair).
+            let h = MeterHistory()
+            h.appendLuma(t: 10.0, value: 0.95)
+            h.appendMic(t: 10.08, value: 0.85)
+            h.appendMark(t: 10.0, kind: .flash)
+            h.appendMark(t: 10.08, kind: .audioPulse)
+            let ms = h.marks(now: 11.0, windowSeconds: 90)
+            expect(ms.contains(where: { $0.kind == .flash }), "FLASH mark without pair")
+            expect(ms.contains(where: { $0.kind == .audioPulse }), "AUDIOPULSE mark without pair")
+            expect(!ms.contains(where: { $0.kind == .pair }), "no PAIR mark when unpaired")
+            let kinds = h.markKindsByColumn(now: 11.0, windowSeconds: 2, count: 20).flatMap { $0 }
+            expect(kinds.contains(.flash) && kinds.contains(.audioPulse) && !kinds.contains(.pair), "column overlay has FLASH+AUDIOPULSE, no PAIR")
+            expect(abs(MeterHistory.defaultWindowSeconds - 90) < 1e-9, "90 s default asserted with unpaired marks")
+        }
+
+        do {
+            // A PAIR mark only appears when paired.
+            let h = MeterHistory()
+            h.appendLuma(t: 5.0, value: 0.92)
+            h.appendMic(t: 5.08, value: 0.80)
+            h.appendMark(t: 5.0, kind: .flash)
+            h.appendMark(t: 5.08, kind: .audioPulse)
+            expect(!h.marks(now: 6, windowSeconds: 5).contains(where: { $0.kind == .pair }), "still no PAIR before pairing")
+            h.appendMark(t: 5.08, kind: .pair)
+            let ms = h.marks(now: 6, windowSeconds: 5)
+            expect(ms.contains(where: { $0.kind == .pair }), "PAIR mark only after paired")
+            expect(ms.contains(where: { $0.kind == .flash }) && ms.contains(where: { $0.kind == .audioPulse }), "FLASH+AUDIOPULSE remain after pair")
+            let cols = h.markKindsByColumn(now: 6, windowSeconds: 5, count: 5)
+            expect(cols.flatMap { $0 }.contains(.pair), "PAIR paints a column")
+        }
+
+        do {
+            let h = MeterHistory()
+            h.appendLuma(t: 1, value: 0.8)
+            h.appendMic(t: 1, value: 0.7)
+            h.appendMark(t: 1, kind: .flash)
+            h.appendMark(t: 1.02, kind: .audioPulse)
+            h.appendMark(t: 1.02, kind: .pair)
+            h.reset()
+            expect(h.lumaCount == 0 && h.micCount == 0 && h.markCount == 0 && h.lastTimestamp == 0, "RESET clears VU samples and marks")
         }
 
         if failed == 0 {
