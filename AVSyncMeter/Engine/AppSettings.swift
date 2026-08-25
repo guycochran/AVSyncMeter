@@ -64,7 +64,7 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(showDistanceHelper, forKey: Keys.distanceHelper) }
     }
 
-    /// Measure-screen LUMA+MIC history window, seconds. 1...90, default 30.
+    /// Measure-screen LUMA+MIC history window, seconds. 1...90, default 90.
     @Published var meterHistorySeconds: Double {
         didSet { defaults.set(MeterHistory.clampedWindow(meterHistorySeconds), forKey: Keys.meterHistory) }
     }

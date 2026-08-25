@@ -251,7 +251,7 @@ final class FrameRateTests: XCTestCase {
     }
 
     func testMeterHistoryDefaultWindowAndClamp() {
-        XCTAssertEqual(MeterHistory.defaultWindowSeconds, 30, accuracy: 1e-9)
+        XCTAssertEqual(MeterHistory.defaultWindowSeconds, 90, accuracy: 1e-9)
         XCTAssertEqual(MeterHistory.clampedWindow(0), 1, accuracy: 1e-9)
         XCTAssertEqual(MeterHistory.clampedWindow(91), 90, accuracy: 1e-9)
     }

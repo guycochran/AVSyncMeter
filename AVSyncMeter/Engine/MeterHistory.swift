@@ -5,7 +5,7 @@ import Foundation
 final class MeterHistory {
     static let minWindowSeconds: Double = 1
     static let maxWindowSeconds: Double = 90
-    static let defaultWindowSeconds: Double = 30
+    static let defaultWindowSeconds: Double = 90
 
     private struct Point {
         var t: Double

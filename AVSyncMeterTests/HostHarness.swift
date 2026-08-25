@@ -1520,11 +1520,12 @@ struct HostHarness {
         // MARK: - Build 15: scrolling LUMA+MIC VU of the last 1–90 s
 
         do {
-            expect(abs(MeterHistory.defaultWindowSeconds - 30) < 1e-9, "VU default window is 30 s")
+            expect(abs(MeterHistory.defaultWindowSeconds - 90) < 1e-9, "VU default window is 90 s")
             expect(abs(MeterHistory.clampedWindow(0) - 1) < 1e-9, "VU window floor 1 s")
             expect(abs(MeterHistory.clampedWindow(90) - 90) < 1e-9, "VU window ceiling 90 s")
             expect(abs(MeterHistory.clampedWindow(91) - 90) < 1e-9, "VU window clamps above 90")
             expect(abs(MeterHistory.clampedWindow(0.5) - 1) < 1e-9, "VU window clamps below 1")
+            expect(abs(MeterHistory.clampedWindow(MeterHistory.defaultWindowSeconds) - 90) < 1e-9, "default 90 is in 1-90")
         }
 
         do {
@@ -1553,6 +1554,22 @@ struct HostHarness {
             let cols = h.lumaColumns(now: 100.0, windowSeconds: 30, count: 30)
             expect(cols[0] < 0.2 && !cols.contains(where: { $0 > 0.5 }), "samples older than the window do not appear")
             expect(cols[29] > 0.05 && cols[29] < 0.2, "newest column is the live 0.1 sample", String(format: "col29=%.3f", cols[29]))
+        }
+
+        do {
+            // Default 90 s window still shows a flash from ~90 s ago (spike-then-pair glance).
+            let h = MeterHistory()
+            h.appendLuma(t: 10.0, value: 0.95)
+            h.appendMic(t: 10.08, value: 0.85)
+            h.appendLuma(t: 100.0, value: 0.08)
+            h.appendMic(t: 100.0, value: 0.02)
+            let luma90 = h.lumaColumns(now: 100.0, windowSeconds: 90, count: 90)
+            let mic90 = h.micColumns(now: 100.0, windowSeconds: 90, count: 90)
+            expect(luma90[0] > 0.8, "90 s window keeps a luma flash from 90 s ago at the left", String(format: "col0=%.3f", luma90[0]))
+            expect(mic90[0] > 0.5, "90 s window keeps a mic spike from 90 s ago at the left", String(format: "col0=%.3f", mic90[0]))
+            expect(luma90[89] < 0.2 && mic90[89] < 0.1, "NOW column is the live floor, not the old spike")
+            let luma30 = h.lumaColumns(now: 100.0, windowSeconds: 30, count: 30)
+            expect(!luma30.contains(where: { $0 > 0.5 }), "30 s window drops the 90 s old flash")
         }
 
         do {
