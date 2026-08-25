@@ -27,7 +27,7 @@ AVCaptureSession (one session)
 
 - One `AVCaptureSession`.
 - Back wide camera + built-in microphone.
-- Video: bi-planar full-range YUV (`420f`). Luma is read from plane 0. 60 fps is requested when the active format allows it.
+- Video: bi-planar full-range YUV (`420f`). Luma is read from plane 0. Capture frame duration follows the program picker: 60_000/1001 (or 30_000/1001) when 29.97/59.94 is selected, integer 1/60 or 1/30 when 30/60 is selected. Integer 30.000 vs a 29.97 file is 1000 ppm and last-25 climbs ~1 ms/beep even if both stream clocks are true host — (9) relative A−V stays 1.0 and will not flatten that.
 - Audio: `AVCaptureAudioDataOutput` as 48 kHz mono float32.
 - **Timing rule:** `CMSampleBufferGetPresentationTimeStamp` (or output PTS), converted with `CMSyncConvertTime` from `session.masterClock` onto `CMClockGetHostTimeClock()`. That session-mapped PTS *is* unified time. `CaptureClock` may rate-map a synthetic PTS vs a stable host (tests / 1000 ppm), but the live path never slope-fits mapped PTS against callback `hostNowSeconds()`. No `Date()`, no UI timestamps, no independent timers for the offset.
 - Focus may lock while measuring. **Do not lock auto-exposure** — locking AE on a dark monitor or mid-flash flattens luma so the white flash never crosses the detector threshold. 400 ms video holdoff swallows AE-recovery double-pumps. AWB stays continuous. HDR and low-light boost stay off.
@@ -42,7 +42,7 @@ unified += (pts − lastPTS) × slope
 slope   = d(host) / d(pts)   // locked after ~0.6 s, frozen at settle
 ```
 
-On the live path, session-mapped PTS is already host time (`pts == host`), so each stream slope freezes at 1.0 and cannot see capture-30.000 vs file-29.97. After both stream fits freeze, a second fit rate-locks **audio vs video unified times**: each stream's unified time vs observation index, divided by a snapped nominal period (integer fps for video, standard audio buffer sizes — not 29.97, or the 1000 ppm would snap away). `relativeSlope = rate_audio / rate_video`. Video then advances on a running timebase with that slope. Freeze the *fitted* A−V slope after settle (not 1.0 unless they actually match). Do not fit callback `hostNow`. The relative intercept is not applied, so a ~+6 ms phone residual is not absorbed.
+On the live path, session-mapped PTS is already host time (`pts == host`), so each stream slope freezes at 1.0 and cannot see capture-30.000 vs file-29.97. After both stream fits freeze, a second fit rate-locks **audio vs video unified times**: each stream's unified time vs observation index, divided by a snapped nominal period (integer *and* 1001-family fps for video, standard audio buffer sizes). Integer-only video snap made true-host 29.97 capture look like 1000 ppm vs 30. `relativeSlope = rate_audio / rate_video`. Video then advances on a running timebase with that slope. Freeze the *fitted* A−V slope after settle (not 1.0 unless they actually match). Do not fit callback `hostNow`. The relative intercept is not applied, so a ~+6 ms phone residual is not absorbed.
 
 Pairs are **not published** until both stream fits *and* the relative A−V fit are *settled* (locked, ≥1 s span, slope stable — or force-settled after ~2.5 s). Slope **freezes** at settle so a 15–25 beep pass cannot walk. The first two detector events per stream after the gate opens are dropped; settling-period events are never queued. A PTS discontinuity (backwards jump) resets and re-locks. Unlocked hits never enter last-25 or the median. The UI shows CLOCK SETTLING / WALK — (clock settling).
 
@@ -103,14 +103,14 @@ SwiftUI (`MeasurementView`) is dark, low-decoration, venue-friendly: preview + t
 
 `AVSyncMeterTests/SyncMeasurementEngineTests.swift` and `WalkAndClockTests.swift` are the XCTest target. `HostHarness.swift` + `SyntheticRig.swift` is a macOS `@main` runner used when `xcodebuild test` cannot attach to the installed iOS 27 simulator runtime.
 
-The harness requires a constant synthetic offset to stay flat, a +164 ms audio step to move the median by ~164 ms, and an already-mapped 30.000 vs 29.97 (1000 ppm) pass whose reported offsets stay flat. Those last cases did not exist when the meter walked ~1 ms/beep on a 29.97 file at 30 fps capture.
+The harness requires a constant synthetic offset to stay flat, a +164 ms audio step to move the median by ~164 ms, an already-mapped 30.000 vs 29.97 (1000 ppm) pass whose reported offsets stay flat, and a true-host integer-30 capture vs 29.97-file events pass that walks ~1 ms/beep until capture is locked to 30_000/1001 or 60_000/1001 (then the same constant-delay pass is flat). Integer 30 vs 29.97 content is not visible to relative A−V on unified buffers.
 
 ## File map
 
 | Path | Role |
 | --- | --- |
 | `Engine/SyncTypes.swift` | Sign convention, events, snapshot |
-| `Engine/FrameRate.swift` | 23.976–60 including 1001-family rates |
+| `Engine/FrameRate.swift` | 23.976–60 including 1001-family rates; picks capture duration from the program picker |
 | `Engine/CaptureClock.swift` | Per-stream PTS → host timebase + relative A−V rate-lock |
 | `Engine/VideoFlashDetector.swift` | First-edge luma flash |
 | `Engine/AudioPulseDetector.swift` | Onset with frozen noise floor |

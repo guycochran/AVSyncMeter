@@ -78,3 +78,12 @@ Build 8 keeps CaptureClock freeze, session-mapped PTS, 400 ms audio refractory, 
 On-device 0.1.2 (8) SHA 9d80961: FLASH+AUDIO working, AE lock off. Headline AUDIO LATE −43, WALK +0.06, SPAN +32.3, VAR +9.6, SYNC UNSTABLE, capture 30.0 fps, 29.97 selected. Last-25 climbed ~+1 ms/beep in two clusters (−34→−23, then −55→−43); overall WALK near 0 was the step cancelling the climb. Capture 30.000 vs file 29.97 is exactly 1000 ppm. Build 7 froze each stream slope at 1.0 after host-map (pts == host), which threw away relative A−V rate correction; HostHarness never simulated 30 vs 29.97 on already-mapped PTS.
 
 Build 9 keeps AE off, callback-hostNow freeze gone, ±250 ms pair window, sign/median/last-25/ZERO/cal 0. After both streams are host-mapped, fit d(audioUnified)/d(videoUnified) and freeze that relative slope (not 1.0 unless they match). PTS discontinuity still re-locks. Do not hide the ~+6 ms phone residual. Do not install.
+
+## Build 10 (lock capture to NTSC 1001 family)
+
+Leftover risk of (9) **is** the downstairs fail: capture reported 30.0 fps with 29.97 selected. Integer 30.000 vs a 29.97 file is 1000 ppm; last-25 climbs ~1 ms/beep even if both stream clocks are true host. Relative A−V on unified buffers stays 1.0, so (9) will not flatten that.
+
+`CaptureManager.lockFrameRateIfPossible` used to force `CMTime(value: 1, timescale: 60)` whenever 59+ was available, and did nothing (default 30.0) when it was not. Build 10 reads the program picker: 29.97/59.94 → 60_000/1001 if 59+ is available, else 30_000/1001. Integer 30/60 pickers still use 1/60 or 1/30. `RelativeAVFit.snapVideoPeriod` now includes 1001-family periods so a true-host 29.97/59.94 capture is not treated as 1000 ppm vs 30/60. AE stays off. (9) relative rate-lock stays. Residual ~+6 ms stays honest. Sign, median, last-25, ZERO, cal 0 unchanged.
+
+HostHarness: integer-30 capture vs 29.97 events walks ~1 ms/beep until this lock is on; with NTSC lock the same constant-delay pass goes FLAT. Keep +164 step, ring-down, extra flash, unsettled empty, (9) already-mapped 1000 ppm tests. Do not install (9).
+

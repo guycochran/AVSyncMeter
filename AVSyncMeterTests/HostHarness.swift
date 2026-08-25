@@ -804,7 +804,107 @@ struct HostHarness {
             expect(abs(rawWalk - 1.001) < 0.05, "raw already-mapped 30 vs 29.97 walk is ~1 ms/event", String(format: "walk %.4f first %.3f last %.3f", rawWalk, raw.first ?? 0, raw.last ?? 0))
         }
 
-                if failed == 0 {
+        // MARK: - Build 10: lock capture to NTSC 1001 family
+
+        do {
+            let d60 = FrameRate.preferredCaptureDuration(program: .fps2997, maxFrameRate: 60)
+            expect(d60.value == 1001 && d60.timescale == 60_000, "29.97 picker + 59+ format → 60_000/1001", "\(d60.value)/\(d60.timescale)")
+            let d30 = FrameRate.preferredCaptureDuration(program: .fps2997, maxFrameRate: 30)
+            expect(d30.value == 1001 && d30.timescale == 30_000, "29.97 picker without 60 → 30_000/1001", "\(d30.value)/\(d30.timescale)")
+            let d5994 = FrameRate.preferredCaptureDuration(program: .fps5994, maxFrameRate: 60)
+            expect(d5994.value == 1001 && d5994.timescale == 60_000, "59.94 picker + 59+ format → 60_000/1001", "\(d5994.value)/\(d5994.timescale)")
+            let d5994_30 = FrameRate.preferredCaptureDuration(program: .fps5994, maxFrameRate: 30)
+            expect(d5994_30.value == 1001 && d5994_30.timescale == 30_000, "59.94 picker without 60 → 30_000/1001", "\(d5994_30.value)/\(d5994_30.timescale)")
+            let i60 = FrameRate.preferredCaptureDuration(program: .fps30, maxFrameRate: 60)
+            expect(i60.value == 1 && i60.timescale == 60, "integer 30 picker + 59+ → 1/60", "\(i60.value)/\(i60.timescale)")
+            let i30 = FrameRate.preferredCaptureDuration(program: .fps30, maxFrameRate: 30)
+            expect(i30.value == 1 && i30.timescale == 30, "integer 30 picker without 60 → 1/30", "\(i30.value)/\(i30.timescale)")
+            let i60p = FrameRate.preferredCaptureDuration(program: .fps60, maxFrameRate: 60)
+            expect(i60p.value == 1 && i60p.timescale == 60, "integer 60 picker → 1/60", "\(i60p.value)/\(i60p.timescale)")
+        }
+
+        /// Both stream clocks are true host (pts == host). Relative A−V stays 1.0,
+        /// so build (9) cannot flatten this. Video event stamps are capture-frame
+        /// index / captureFps; audio events sit on 29.97 file wall + constant delay.
+        /// Integer 30 walks ~1 ms/beep. 30_000/1001 or 60_000/1001 goes FLAT.
+        func runTrueHostCaptureVsNTSCFile(
+            captureFps: Double,
+            trueOffsetMs: Double,
+            events: Int,
+            warmupSeconds: Double = 4.2
+        ) -> (offsets: [Double], relativeSlope: Double) {
+            let clock = CaptureClock()
+            let fileFps = 30_000.0 / 1_001.0
+            let eventPeriod = 30.0 / fileFps
+            let trueOffset = trueOffsetMs / 1000.0
+            let firstK = Int((warmupSeconds / eventPeriod).rounded(.up))
+            let lastK = firstK + events - 1
+            let total = Double(lastK) * eventPeriod + 0.5
+            var offsets: [Double] = []
+            var tV = 0.0
+            var tA = 0.0
+            var nextK = firstK
+            while tV <= total || tA <= total {
+                if tA > total || (tV <= total && tV <= tA) {
+                    _ = clock.observe(stream: .video, ptsSeconds: tV, hostSeconds: tV)
+                    tV += 1.0 / captureFps
+                    if clock.allowsPublishedPairs, nextK <= lastK {
+                        let fileWall = Double(nextK) * eventPeriod
+                        if tV + 1e-9 >= fileWall {
+                            let vPTS = CaptureFrameDuration.videoPTS(fileWallSeconds: fileWall, captureFps: captureFps)
+                            let aPTS = fileWall + trueOffset
+                            let vU = clock.unified(stream: .video, ptsSeconds: vPTS)
+                            let aU = clock.unified(stream: .audio, ptsSeconds: aPTS)
+                            offsets.append((aU - vU) * 1000)
+                            nextK += 1
+                        }
+                    }
+                } else {
+                    _ = clock.observe(stream: .audio, ptsSeconds: tA, hostSeconds: tA)
+                    tA += 0.01
+                }
+            }
+            return (offsets, clock.snapshot().relativeSlope)
+        }
+
+        do {
+            let ntsc30 = 30_000.0 / 1_001.0
+            let ntsc60 = 60_000.0 / 1_001.0
+            let (walkOff, walkSlope) = runTrueHostCaptureVsNTSCFile(captureFps: 30.0, trueOffsetMs: 6, events: 25)
+            let n = walkOff.count
+            let med = n == 0 ? 0 : MeasurementStatistics.median(walkOff)
+            let walk = MeasurementStatistics.walkMsPerEvent(walkOff) ?? 0
+            expect(n >= 25, "integer-30 capture vs 29.97 events: ≥25 s", "n=\(n)")
+            expect(abs(walkSlope - 1.0) < 0.0008, "integer-30 vs 29.97: relative A−V stays 1.0 (9 cannot flatten)", String(format: "slope %.6f", walkSlope))
+            expect(abs(walk - 1.001) < 0.08, "integer-30 capture vs 29.97 events walks ~1 ms/beep until NTSC lock", String(format: "walk %.4f med %.3f first %.3f last %.3f n=%d", walk, med, walkOff.first ?? 0, walkOff.last ?? 0, n))
+
+            for (fps, label) in [(ntsc30, "30_000/1001"), (ntsc60, "60_000/1001")] {
+                let (off, slope) = runTrueHostCaptureVsNTSCFile(captureFps: fps, trueOffsetMs: 6, events: 25)
+                let nn = off.count
+                let m = nn == 0 ? 0 : MeasurementStatistics.median(off)
+                let w = MeasurementStatistics.walkMsPerEvent(off) ?? 999
+                let span = nn == 0 ? 999 : (off.max()! - off.min()!)
+                expect(nn >= 25, "NTSC \(label) capture vs 29.97 events: ≥25 s", "n=\(nn)")
+                expect(abs(slope - 1.0) < 0.0008, "NTSC \(label): relative A−V stays 1.0 (lock is capture, not (9))", String(format: "slope %.6f", slope))
+                expect(abs(m - 6) < 3.0, "NTSC \(label) median ~+6 ms (do not hide residual)", String(format: "med %.3f walk %.4f n=%d first %.3f last %.3f", m, w, nn, off.first ?? 0, off.last ?? 0))
+                expect(abs(w) < 0.15, "NTSC \(label) capture vs 29.97 events goes FLAT", String(format: "walk %.4f span %.3f n=%d", w, span, nn))
+                expect(span < 5.0, "NTSC \(label) span tight", String(format: "span %.3f", span))
+            }
+        }
+
+        do {
+            // NTSC lock is a rate, not a delay sponge. +164 ms still moves the median.
+            let ntsc60 = 60_000.0 / 1_001.0
+            let pre = runTrueHostCaptureVsNTSCFile(captureFps: ntsc60, trueOffsetMs: 0, events: 10).offsets
+            let post = runTrueHostCaptureVsNTSCFile(captureFps: ntsc60, trueOffsetMs: 164, events: 20).offsets
+            let medPre = MeasurementStatistics.median(pre)
+            let medPost = MeasurementStatistics.median(post)
+            expect(pre.count >= 8 && abs(medPre) < 3, "NTSC lock step pre: ~0 ms", String(format: "n=%d med=%.3f", pre.count, medPre))
+            expect(post.count >= 16 && abs(medPost - 164) < 3, "NTSC lock step post: ~164 ms", String(format: "n=%d med=%.3f", post.count, medPost))
+            expect(abs((medPost - medPre) - 164) < 4, "NTSC lock: +164 ms still moves median", String(format: "delta %.3f", medPost - medPre))
+        }
+
+        if failed == 0 {
             print("ALL HARNESS TESTS PASSED")
         } else {
             print("FAILED: \(failed)")

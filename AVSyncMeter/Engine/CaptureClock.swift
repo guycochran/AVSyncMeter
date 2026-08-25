@@ -224,6 +224,8 @@ struct StreamClockFit: Equatable {
 /// `slope = rate_audio / rate_video`. Freeze the fitted slope after
 /// settle (not 1.0 unless they actually match). The intercept is not
 /// applied, so a ~+6 ms phone residual is not hidden.
+/// Snap video to integer *and* 1001-family periods so a true-host
+/// 29.97/59.94 capture is not treated as 1000 ppm vs 30/60.
 struct IndexRateFit: Equatable {
     private var index = 0
     private var lastUnified: Double?
@@ -422,10 +424,15 @@ struct RelativeAVFit: Equatable {
         return rateA / rateV
     }
 
-    /// Integer fps only — 23.976 / 29.97 / 59.94 must *not* be candidates
-    /// or the 1000 ppm vs 30.000 would snap away.
+    /// Integer fps *and* the 1001 family. Integer-only snapping makes a
+    /// true-host 29.97/59.94 capture look like 1000 ppm vs 30/60 and walks
+    /// a constant delay. 30.000 is still closer to 1/30 than to 1001/30000,
+    /// so already-mapped 30 vs 29.97 audio still shows up in the audio rate.
     static func snapVideoPeriod(_ dt: Double) -> Double {
-        let candidates = [1.0 / 24.0, 1.0 / 25.0, 1.0 / 30.0, 1.0 / 48.0, 1.0 / 50.0, 1.0 / 60.0]
+        let candidates = [
+            1.0 / 24.0, 1.0 / 25.0, 1.0 / 30.0, 1.0 / 48.0, 1.0 / 50.0, 1.0 / 60.0,
+            1_001.0 / 24_000.0, 1_001.0 / 30_000.0, 1_001.0 / 60_000.0
+        ]
         var best = candidates[0]
         var bestErr = abs(dt - best)
         for c in candidates {

@@ -25,7 +25,7 @@ Acoustic travel is intentional. Sound is about 343 m/s (~1.1 ft/ms). Ten feet of
 
 - On a **constant true offset**, 30+ synthetic events stay flat: walk ≪ 1 ms/event, span a few milliseconds, median near the true value.
 - A synthetic audio delay of **N ms** moves the reported median by about **N ms**.
-- A 1000 ppm relative PTS-rate error, including already-mapped 30.000 vs 29.97 (the old ~1 ms per 1 Hz beep walk), is removed by `CaptureClock`.
+- A 1000 ppm relative PTS-rate error, including already-mapped 30.000 vs 29.97 (the old ~1 ms per 1 Hz beep walk), is removed by `CaptureClock` when it shows up in the stream clocks. Integer-30 **capture** vs a 29.97 **file** is a different 1000 ppm: both stream clocks are true host, relative A−V stays 1.0, and last-25 still climbs ~1 ms/beep until capture is locked to 30_000/1001 or 60_000/1001.
 
 **Will not claim:**
 
@@ -55,7 +55,7 @@ The previous engine subtracted `CMTimeGetSeconds(audioPTS) − CMTimeGetSeconds(
 
 `CaptureClock` rate-maps each stream to a stable host (tests) or uses session-mapped PTS as both axes (live), then rate-locks the two unified clocks against each other. Freezing each stream slope at 1.0 after host-map is correct vs callback hostNow; it is not sufficient vs 30.000-capture / 29.97-file. **Pairs are held until both stream fits and the relative A−V fit are settled** — the fitted relative slope then freezes (not 1.0 unless they match); force-settle at ~2.5 s if chatter would keep CLOCK SETTLING forever; the first two events per stream after the gate are dropped. Detectors stamp the first reliable edge (flash) and the beep onset (backtracked to the noise floor), then stay deaf ~400 ms and re-arm on quiet so ring-down / projector double-flash is one onset. Pairing is chronological 1:1 plus a ±250 ms max |offset| so extra pulses expire unpaired instead of stealing the next flash. Focus may lock; auto-exposure stays continuous so a dark-monitor AE lock cannot flatten the flash below threshold. Video re-arms on a relative drop from the flash peak.
 
-Honest leftover from unlocked **source** clocks (Mitti video vs Mitti audio on separate interfaces) can still sit in the median. That is house, not a 1 ms/beep walk.
+Honest leftover from unlocked **source** clocks (Mitti video vs Mitti audio on separate interfaces) can still sit in the median. That is house, not a 1 ms/beep walk. If the device format cannot actually lock 59.94/29.97 (integer 30/60 only), the capture-vs-file walk remains — do not hide it in calibration.
 
 ## Error sources (not compensated)
 

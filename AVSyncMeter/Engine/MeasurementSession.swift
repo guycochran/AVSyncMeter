@@ -34,6 +34,7 @@ final class MeasurementSession: ObservableObject {
     init(settings: AppSettings = .shared) {
         self.settings = settings
         applySettingsToEngine()
+        capture.setProgramFrameRate(settings.frameRate)
         capture.$lastError
             .receive(on: DispatchQueue.main)
             .sink { [weak self] err in self?.captureError = err }
@@ -59,6 +60,7 @@ final class MeasurementSession: ObservableObject {
 
     func startMeasurement() {
         applySettingsToEngine()
+        capture.setProgramFrameRate(settings.frameRate)
         statusNote = "LISTENING"
         runState = .listening
         captureError = nil
@@ -95,6 +97,7 @@ final class MeasurementSession: ObservableObject {
         engine.configuration.calibrationOffsetMilliseconds = settings.calibrationOffsetMilliseconds
         engine.configuration.stabilityThresholdMilliseconds = settings.stabilityThresholdMilliseconds
         engine.configuration.outlierMADMultiplier = settings.outlierMADMultiplier
+        capture.setProgramFrameRate(settings.frameRate)
     }
 
     /// Raw measured offset used for Zero / Set true: median of valid samples if any, else current pair.

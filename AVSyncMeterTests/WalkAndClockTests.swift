@@ -480,4 +480,80 @@ final class WalkAndClockTests: XCTestCase {
         XCTAssertEqual(MeasurementStatistics.walkMsPerEvent(raw) ?? 0, 1.001, accuracy: 0.05)
     }
 
+    func testPickerPrefersNTSCCaptureDuration() {
+        let ntsc60 = FrameRate.preferredCaptureDuration(program: .fps2997, maxFrameRate: 60)
+        XCTAssertEqual(ntsc60.value, 1001)
+        XCTAssertEqual(ntsc60.timescale, 60_000)
+        let ntsc30 = FrameRate.preferredCaptureDuration(program: .fps2997, maxFrameRate: 30)
+        XCTAssertEqual(ntsc30.value, 1001)
+        XCTAssertEqual(ntsc30.timescale, 30_000)
+        let i60 = FrameRate.preferredCaptureDuration(program: .fps30, maxFrameRate: 60)
+        XCTAssertEqual(i60.value, 1)
+        XCTAssertEqual(i60.timescale, 60)
+        let i30 = FrameRate.preferredCaptureDuration(program: .fps30, maxFrameRate: 30)
+        XCTAssertEqual(i30.value, 1)
+        XCTAssertEqual(i30.timescale, 30)
+        let p60 = FrameRate.preferredCaptureDuration(program: .fps60, maxFrameRate: 60)
+        XCTAssertEqual(p60.value, 1)
+        XCTAssertEqual(p60.timescale, 60)
+        let p5994 = FrameRate.preferredCaptureDuration(program: .fps5994, maxFrameRate: 60)
+        XCTAssertEqual(p5994.value, 1001)
+        XCTAssertEqual(p5994.timescale, 60_000)
+    }
+
+    func runTrueHostCaptureVsNTSCFile(captureFps: Double, trueOffsetMs: Double, events: Int) -> (offsets: [Double], relativeSlope: Double) {
+        let clock = CaptureClock()
+        let fileFps = 30_000.0 / 1_001.0
+        let eventPeriod = 30.0 / fileFps
+        let trueOffset = trueOffsetMs / 1000.0
+        let warmupSeconds = 4.2
+        let firstK = Int((warmupSeconds / eventPeriod).rounded(.up))
+        let lastK = firstK + events - 1
+        let total = Double(lastK) * eventPeriod + 0.5
+        var offsets: [Double] = []
+        var tV = 0.0
+        var tA = 0.0
+        var nextK = firstK
+        while tV <= total || tA <= total {
+            if tA > total || (tV <= total && tV <= tA) {
+                _ = clock.observe(stream: .video, ptsSeconds: tV, hostSeconds: tV)
+                tV += 1.0 / captureFps
+                if clock.allowsPublishedPairs, nextK <= lastK {
+                    let fileWall = Double(nextK) * eventPeriod
+                    if tV + 1e-9 >= fileWall {
+                        let vPTS = CaptureFrameDuration.videoPTS(fileWallSeconds: fileWall, captureFps: captureFps)
+                        let aPTS = fileWall + trueOffset
+                        let vU = clock.unified(stream: .video, ptsSeconds: vPTS)
+                        let aU = clock.unified(stream: .audio, ptsSeconds: aPTS)
+                        offsets.append((aU - vU) * 1000)
+                        nextK += 1
+                    }
+                }
+            } else {
+                _ = clock.observe(stream: .audio, ptsSeconds: tA, hostSeconds: tA)
+                tA += 0.01
+            }
+        }
+        return (offsets, clock.snapshot().relativeSlope)
+    }
+
+    func testInteger30CaptureVs297EventsWalksUntilNTSCLock() {
+        let (off, slope) = runTrueHostCaptureVsNTSCFile(captureFps: 30.0, trueOffsetMs: 6, events: 25)
+        XCTAssertGreaterThanOrEqual(off.count, 25)
+        XCTAssertEqual(slope, 1.0, accuracy: 0.0008, "relative A−V stays 1.0")
+        let walk = MeasurementStatistics.walkMsPerEvent(off) ?? 0
+        XCTAssertEqual(walk, 1.001, accuracy: 0.08, "walk \(walk)")
+    }
+
+    func testNTSCCaptureLockFlattens297File() {
+        for fps in [30_000.0 / 1_001.0, 60_000.0 / 1_001.0] {
+            let (off, slope) = runTrueHostCaptureVsNTSCFile(captureFps: fps, trueOffsetMs: 6, events: 25)
+            XCTAssertGreaterThanOrEqual(off.count, 25)
+            XCTAssertEqual(slope, 1.0, accuracy: 0.0008)
+            XCTAssertEqual(MeasurementStatistics.median(off), 6, accuracy: 3)
+            let walk = MeasurementStatistics.walkMsPerEvent(off) ?? 999
+            XCTAssertLessThan(abs(walk), 0.15, "fps \(fps) walk \(walk)")
+        }
+    }
+
 }

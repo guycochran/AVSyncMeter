@@ -15,7 +15,7 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    Text("Used only to convert milliseconds into frames. Does not change capture.")
+                    Text("29.97 / 59.94 lock the camera to the NTSC 1001 family (60_000/1001 if the format allows 59+, else 30_000/1001). 30 / 60 keep integer 1/60 or 1/30. Also converts milliseconds into frames.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

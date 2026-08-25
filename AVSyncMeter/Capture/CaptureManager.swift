@@ -39,6 +39,10 @@ final class CaptureManager: NSObject, ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var observedVideoFPS: Double = 0
 
+    /// Program picker. NTSC 29.97/59.94 locks capture to 60_000/1001 (or 30_000/1001);
+    /// integer 30/60 keeps 1/60 or 1/30. Default matches AppSettings (29.97).
+    var programFrameRate: FrameRate = .fps2997
+
     var onVideoBuffer: ((CMSampleBuffer, AVCaptureConnection) -> Void)?
     var onAudioBuffer: ((CMSampleBuffer, AVCaptureConnection) -> Void)?
 
@@ -65,6 +69,9 @@ final class CaptureManager: NSObject, ObservableObject {
             guard let self else { return }
             do {
                 try self.configureIfNeeded()
+                if let camera = self.videoDevice {
+                    Self.lockFrameRateIfPossible(camera, program: self.programFrameRate)
+                }
                 if !self.session.isRunning {
                     self.session.startRunning()
                 }
@@ -104,7 +111,7 @@ final class CaptureManager: NSObject, ObservableObject {
             throw CaptureError.noCamera
         }
         self.videoDevice = camera
-        Self.lockFrameRateIfPossible(camera)
+        Self.lockFrameRateIfPossible(camera, program: programFrameRate)
         let cameraInput = try AVCaptureDeviceInput(device: camera)
         guard session.canAddInput(cameraInput) else {
             session.commitConfiguration()
@@ -152,14 +159,30 @@ final class CaptureManager: NSObject, ObservableObject {
         configured = true
     }
 
-    private static func lockFrameRateIfPossible(_ camera: AVCaptureDevice) {
+    /// Re-apply the picker-matching duration if the session is already configured.
+    func setProgramFrameRate(_ rate: FrameRate) {
+        programFrameRate = rate
+        sessionQueue.async { [weak self] in
+            guard let self, let camera = self.videoDevice else { return }
+            Self.lockFrameRateIfPossible(camera, program: rate)
+        }
+    }
+
+    /// Lock capture to the NTSC 1001 family when the program picker is 29.97/59.94,
+    /// not integer 1/60. Integer 30/60 pickers still use 1/60 (or 1/30).
+    /// Keep AE continuous — locking exposure kills FLASH.
+    private static func lockFrameRateIfPossible(_ camera: AVCaptureDevice, program: FrameRate) {
         do {
             try camera.lockForConfiguration()
             defer { camera.unlockForConfiguration() }
             let ranges = camera.activeFormat.videoSupportedFrameRateRanges
-            if ranges.contains(where: { $0.maxFrameRate >= 59.0 }) {
-                camera.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 60)
-                camera.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 60)
+            let maxRate = ranges.map(\.maxFrameRate).max() ?? 0
+            let chosen = FrameRate.preferredCaptureDuration(program: program, maxFrameRate: maxRate)
+            let fps = chosen.framesPerSecond
+            if ranges.contains(where: { $0.minFrameRate - 0.05 <= fps && fps <= $0.maxFrameRate + 0.05 }) {
+                let duration = CMTime(value: chosen.value, timescale: chosen.timescale)
+                camera.activeVideoMinFrameDuration = duration
+                camera.activeVideoMaxFrameDuration = duration
             }
             // Converge on the screen. Do not freeze AE: locking exposure on a
             // dark monitor (or mid-flash) crushes ISO so the white flash never
