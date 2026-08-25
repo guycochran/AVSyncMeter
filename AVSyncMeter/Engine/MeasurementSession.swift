@@ -182,7 +182,11 @@ final class MeasurementSession: ObservableObject {
             guard let self else { return }
             let unified = self.captureClock.observe(stream: .video, ptsSeconds: pts, hostSeconds: host)
             if let flash = self.flashDetector.processPixelBuffer(image, timestampSeconds: unified) {
-                _ = self.engine.ingestFlash(flash)
+                if self.captureClock.allowsPublishedPairs {
+                    _ = self.engine.ingestFlash(flash)
+                } else {
+                    self.engine.noteHeldForClock(flash: flash, pulse: nil)
+                }
             }
             let luma = self.flashDetector.lastLuminance
             self.publishEngine(luminance: luma)
@@ -198,7 +202,11 @@ final class MeasurementSession: ObservableObject {
             guard let self else { return }
             let unifiedStart = self.captureClock.observe(stream: .audio, ptsSeconds: pts, hostSeconds: host)
             if let pulse = self.pulseDetector.processSampleBuffer(buffer, bufferStartOverride: unifiedStart) {
-                _ = self.engine.ingestPulse(pulse)
+                if self.captureClock.allowsPublishedPairs {
+                    _ = self.engine.ingestPulse(pulse)
+                } else {
+                    self.engine.noteHeldForClock(flash: nil, pulse: pulse)
+                }
             }
             let level = self.pulseDetector.lastEnvelope
             DispatchQueue.main.async {
@@ -219,7 +227,9 @@ final class MeasurementSession: ObservableObject {
             self.diagnostics = logs
             self.clockSnapshot = clock
             if let luminance { self.liveLuminance = luminance }
-            if snap.validCount > 0 {
+            if !clock.settled && self.runState != .idle && snap.validCount == 0 {
+                self.statusNote = "CLOCK SETTLING"
+            } else if snap.validCount > 0 {
                 self.runState = .measuring
                 if let ms = snap.correctedMedianMilliseconds {
                     self.statusNote = Self.headline(ms)

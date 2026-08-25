@@ -110,7 +110,7 @@ final class SyncMeasurementEngineTests: XCTestCase {
         for i in 0..<6 {
             _ = pair(e, tVideo: Double(i), tAudio: Double(i) + 0.200)
         }
-        _ = pair(e, tVideo: 10.0, tAudio: 10.0 + 0.850)
+        _ = pair(e, tVideo: 10.0, tAudio: 10.0 + 0.240)
         let snap = e.snapshot()
         XCTAssertEqual(snap.validCount, 6)
         XCTAssertEqual(snap.outlierCount, 1)
@@ -137,7 +137,7 @@ final class SyncMeasurementEngineTests: XCTestCase {
         for i in 0..<28 {
             _ = pair(e, tVideo: Double(i), tAudio: Double(i) + 0.200)
         }
-        _ = pair(e, tVideo: 40.0, tAudio: 40.0 + 0.850)
+        _ = pair(e, tVideo: 40.0, tAudio: 40.0 + 0.240)
         let snap = e.snapshot()
         XCTAssertEqual(snap.validCount, 28)
         XCTAssertEqual(snap.outlierCount, 1)
@@ -170,16 +170,16 @@ final class SyncMeasurementEngineTests: XCTestCase {
         let e = engine()
         XCTAssertNil(e.snapshot().correctedMedianMilliseconds)
         _ = pair(e, tVideo: 0, tAudio: 0.100)
-        _ = pair(e, tVideo: 1, tAudio: 1.200)
-        _ = pair(e, tVideo: 2, tAudio: 2.300)
+        _ = pair(e, tVideo: 1, tAudio: 1.160)
+        _ = pair(e, tVideo: 2, tAudio: 2.220)
         let snap = e.snapshot()
         XCTAssertEqual(snap.validCount, 3)
-        XCTAssertEqual(snap.currentOffsetMilliseconds ?? 0, 300, accuracy: 0.01)
-        XCTAssertEqual(snap.medianMilliseconds, 200, accuracy: 0.01)
-        XCTAssertEqual(snap.correctedMedianMilliseconds ?? 0, 200, accuracy: 0.01)
+        XCTAssertEqual(snap.currentOffsetMilliseconds ?? 0, 220, accuracy: 0.01)
+        XCTAssertEqual(snap.medianMilliseconds, 160, accuracy: 0.01)
+        XCTAssertEqual(snap.correctedMedianMilliseconds ?? 0, 160, accuracy: 0.01)
         e.configuration.calibrationOffsetMilliseconds = 10
-        XCTAssertEqual(e.snapshot().correctedMedianMilliseconds ?? 0, 190, accuracy: 0.01)
-        XCTAssertEqual(e.snapshot().correctedCurrentMilliseconds ?? 0, 290, accuracy: 0.01)
+        XCTAssertEqual(e.snapshot().correctedMedianMilliseconds ?? 0, 150, accuracy: 0.01)
+        XCTAssertEqual(e.snapshot().correctedCurrentMilliseconds ?? 0, 210, accuracy: 0.01)
     }
 
     func testCalibrationSubtracts() {

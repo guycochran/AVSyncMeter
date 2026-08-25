@@ -24,6 +24,7 @@ struct DiagnosticsView: View {
                 Section("Capture clocks") {
                     let c = session.clockSnapshot
                     labeled("Locked", c.locked ? "yes" : "no")
+                    labeled("Settled", c.settled ? "yes — publishing" : "no — pairs held")
                     labeled("Video slope host/pts", String(format: "%.6f  n=%d", c.videoSlope, c.videoObservations))
                     labeled("Audio slope host/pts", String(format: "%.6f  n=%d", c.audioSlope, c.audioObservations))
                     labeled("Video PTS vs host", String(format: "%+.0f ppm", c.videoPpmVersusHost))

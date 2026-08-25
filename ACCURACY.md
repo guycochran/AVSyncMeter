@@ -53,7 +53,7 @@ Default is **0 ms**, shown as “none applied”. That is not a claim of zero se
 
 The previous engine subtracted `CMTimeGetSeconds(audioPTS) − CMTimeGetSeconds(videoPTS)` and treated those as one clock. On iPhone they are not. Camera PTS and mic PTS can run hundreds to ~1000 ppm apart (NTSC 1000/1001 family, unlocked device clocks, frame-index/30 vs wall). At 1 Hz that is **~0.3–1.0 ms per beep**, always climbing, on a constant delay — PCM near-field, AAC, and UltraStudio+PA alike. The absolute offset changed with the chain (AAC decoder delay, HDMI/PA latency); the **ramp** was the meter.
 
-`CaptureClock` rate-maps each stream to host time. Detectors now stamp the first reliable edge (flash) and the beep onset (backtracked to the noise floor), not a lagging adaptive threshold. Pairing is chronological 1:1.
+`CaptureClock` rate-maps each stream to host time. **Pairs are held until both stream fits are settled** — the first second of slope blending is not a measurement. Detectors stamp the first reliable edge (flash) and the beep onset (backtracked to the noise floor), then stay deaf ~400 ms and re-arm on quiet so ring-down is one onset. Pairing is chronological 1:1 plus a ±250 ms max |offset| so extra pulses expire unpaired instead of stealing the next flash.
 
 Honest leftover from unlocked **source** clocks (Mitti video vs Mitti audio on separate interfaces) can still sit in the median. That is house, not a 1 ms/beep walk.
 
@@ -78,7 +78,7 @@ The built-in mic goes through analog, ADC, and the OS audio path. Unified timest
 Onset is unified buffer start + sampleIndex / sampleRate. The trigger is high (so noise does not chatter). The stamp is the first sample over a low noise-floor threshold, walked back from the trigger, so AGC cannot slide the reading 1 ms/s.
 
 ### Reverb and false pulses
-A beep in a room produces a tail. The detector masks after a hit. A louder reflection after the mask can still create an extra event, which pairing expires. Keep the pairing window tight enough for your pattern rate (default ±1 s at 1 Hz).
+A beep in a room produces a tail. The detector masks ~400 ms after a hit and re-arms on quiet. A leftover replica that still fires expires unpaired (max pair offset ±250 ms) instead of pairing with the next flash. Keep the pattern near 1 Hz (Harkwood).
 
 ### Phone thermal / performance
 Dropped frames change observed capture fps (shown in Diagnostics). Dropped frames increase the chance of missing a flash.

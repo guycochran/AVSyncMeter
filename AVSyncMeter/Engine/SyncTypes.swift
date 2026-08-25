@@ -74,6 +74,7 @@ struct DiagnosticEvent: Identifiable, Equatable {
         case rejectedOutlier
         case rejectedExtraPulse
         case rejectedExtraFlash
+        case clockSettling
     }
 
     let id: UUID

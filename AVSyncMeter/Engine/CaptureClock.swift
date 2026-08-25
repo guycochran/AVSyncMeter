@@ -15,12 +15,18 @@ import Foundation
 ///
 /// Prefer this unified time for pairing. Raw PTS subtraction across streams
 /// is how the meter used to walk ~1 ms per 1 Hz beep.
+///
+/// Do not publish paired offsets until `settled`. While the slope is still
+/// blending from 1.0 toward the estimate, unified A−V is garbage even if
+/// `locked` has just become true.
 struct StreamClockFit: Equatable {
     /// host_seconds per PTS_second. 1.0 means PTS already tracks host.
     private(set) var slope: Double = 1
     private(set) var observationCount: Int = 0
     private(set) var spanSeconds: Double = 0
     private(set) var locked: Bool = false
+    /// Locked, enough samples on this stream, and slope no longer jumping.
+    private(set) var settled: Bool = false
 
     private var lastPTS: Double?
     private var lastUnified: Double?
@@ -33,12 +39,14 @@ struct StreamClockFit: Equatable {
     private var wY = 0.0
     private var wXX = 0.0
     private var wXY = 0.0
+    private var stableUpdateCount = 0
 
     mutating func reset() {
         slope = 1
         observationCount = 0
         spanSeconds = 0
         locked = false
+        settled = false
         lastPTS = nil
         lastUnified = nil
         firstPTS = nil
@@ -49,6 +57,7 @@ struct StreamClockFit: Equatable {
         wY = 0
         wXX = 0
         wXY = 0
+        stableUpdateCount = 0
     }
 
     /// Observe a buffer/frame. Returns unified seconds for this PTS.
@@ -63,21 +72,24 @@ struct StreamClockFit: Equatable {
         }
         updateSlope(ptsSeconds: ptsSeconds, hostSeconds: hostSeconds)
 
+        let unified: Double
         if let lastPTS, let lastUnified {
-            let unified = lastUnified + (ptsSeconds - lastPTS) * slope
+            unified = lastUnified + (ptsSeconds - lastPTS) * slope
             self.lastPTS = ptsSeconds
             self.lastUnified = unified
             self.lastHost = hostSeconds
             observationCount += 1
-            return unified
+        } else {
+            lastPTS = ptsSeconds
+            lastUnified = ptsSeconds
+            lastHost = hostSeconds
+            firstPTS = ptsSeconds
+            firstHost = hostSeconds
+            observationCount = 1
+            unified = ptsSeconds
         }
-        lastPTS = ptsSeconds
-        lastUnified = ptsSeconds
-        lastHost = hostSeconds
-        firstPTS = ptsSeconds
-        firstHost = hostSeconds
-        observationCount = 1
-        return ptsSeconds
+        refreshSettled()
+        return unified
     }
 
     /// Interpolate an onset that sits inside the last observed buffer.
@@ -92,6 +104,13 @@ struct StreamClockFit: Equatable {
     var ptsRatePpmVersusHost: Double {
         guard slope > 1e-9 else { return 0 }
         return (1.0 / slope - 1.0) * 1_000_000.0
+    }
+
+    private mutating func refreshSettled() {
+        settled = locked
+            && stableUpdateCount >= 3
+            && spanSeconds >= 1.0
+            && observationCount >= 24
     }
 
     private mutating func updateSlope(ptsSeconds: Double, hostSeconds: Double) {
@@ -124,9 +143,17 @@ struct StreamClockFit: Equatable {
         let estimated = (wSum * wXY - wX * wY) / det
         guard estimated > 0.95, estimated < 1.05 else { return }
         // Blend so lock does not jump a 25 s origin in one shot.
+        let previous = slope
         let alpha = locked ? 0.15 : 0.35
         slope = slope * (1 - alpha) + estimated * alpha
         locked = true
+        let denom = max(abs(slope), 1e-9)
+        let ppm = abs(slope - previous) / denom * 1_000_000.0
+        if ppm < 80 {
+            stableUpdateCount += 1
+        } else {
+            stableUpdateCount = 0
+        }
     }
 }
 
@@ -142,6 +169,7 @@ struct ClockSnapshot: Equatable {
     /// (audio PTS rate / video PTS rate − 1) × 1e6. Positive: audio PTS runs fast vs video.
     var relativeDriftPPM: Double = 0
     var locked: Bool = false
+    var settled: Bool = false
 
     static let empty = ClockSnapshot()
 }
@@ -180,6 +208,9 @@ final class CaptureClock {
         }
     }
 
+    /// Live path: do not ingest pairs until both stream fits are settled.
+    var allowsPublishedPairs: Bool { snapshot().settled }
+
     func snapshot() -> ClockSnapshot {
         let vs = videoFit.slope
         let asl = audioFit.slope
@@ -199,7 +230,8 @@ final class CaptureClock {
             videoPpmVersusHost: videoFit.ptsRatePpmVersusHost,
             audioPpmVersusHost: audioFit.ptsRatePpmVersusHost,
             relativeDriftPPM: rel,
-            locked: videoFit.locked && audioFit.locked
+            locked: videoFit.locked && audioFit.locked,
+            settled: videoFit.settled && audioFit.settled
         )
     }
 }

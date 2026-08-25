@@ -41,6 +41,8 @@ unified += (pts − lastPTS) × slope
 slope   = d(host) / d(pts)   // locked after ~0.6 s of observations
 ```
 
+Pairs are **not published** until both stream fits are *settled* (locked, ≥1 s span, slope stable). Unlocked hits never enter last-25 or the median. The UI shows CLOCK SETTLING / WALK — (clock settling).
+
 Audio is the high-resolution reference in the sense that onset is sample-accurate on that timebase; video frames are mapped onto the same host seconds. A 1000 ppm PTS-rate error (≈ 1 ms per 1 Hz beep) becomes a slope ≠ 1 and is removed. Residual mean sensor delay is a constant (ZERO / SET TRUE).
 
 Diagnostics shows video/audio slope, ppm vs host, and relative A−V ppm.
@@ -62,13 +64,13 @@ No computer vision. Each frame:
 2. Scan short hops for RMS vs a noise floor that updates **only when quiet**.
 3. A high trigger (hysteresis) decides that a beep happened.
 4. Onset is walked back to the first sample over a **low** noise-floor multiple, so AGC cannot slide the stamp 1 ms/s.
-5. Mask for ~220 ms so reverb is not a second event.
+5. Mask for ~400 ms (Harkwood is 1 Hz) and re-arm only after the envelope goes quiet so ring-down is not a second event. Threshold sits on a quiet-only floor with real headroom, not 0.001 above env.
 
 No pitch detection.
 
 ## Pairing (`SyncMeasurementEngine`)
 
-Queues unmatched flashes and pulses, sorted by unified time. Oldest flash vs oldest pulse: if `|audio − video|` is inside the search window (default ±1 s) they pair; otherwise the older head expires. No nearest-neighbour stealing, no accumulating pairing debt.
+Queues unmatched flashes and pulses, sorted by unified time. Oldest flash vs oldest pulse: they pair only if `|audio − video|` is inside `maxPairOffsetSeconds` (default ±250 ms). Otherwise the older head expires unpaired, so a 200–400 ms ring-down replica cannot steal the next 1 Hz flash. `pairingWindowSeconds` (default 1 s) is how long a lone event waits. No nearest-neighbour stealing, no accumulating pairing debt.
 
 ```
 offsetMilliseconds = (audioUnified − videoUnified) * 1000

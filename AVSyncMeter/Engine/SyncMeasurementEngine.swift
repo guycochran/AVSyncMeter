@@ -6,14 +6,18 @@ import Foundation
 /// `AudioPulseEvent` with timestamps already on ONE clock (CaptureClock unified
 /// seconds in the live path).
 ///
-/// Pairing: chronological 1:1. Oldest flash vs oldest pulse; if they sit inside
-/// ±pairingWindowSeconds they pair; otherwise the older one expires. No nearest-
-/// neighbour stealing across cycles, no accumulating pairing debt.
+/// Pairing: chronological 1:1 PLUS a max |offset| window. Oldest flash vs oldest
+/// pulse; they pair only if |audio − video| ≤ maxPairOffsetSeconds (default ±250 ms,
+/// enough for a +164 ms step, tight enough that a 200–400 ms ring-down replica
+/// cannot steal the next 1 Hz flash). Otherwise the older head expires unpaired.
+/// pairingWindowSeconds is how long a lone event waits before aging out.
 ///
 /// Sign: offsetMilliseconds = (audio - video) * 1000. See SyncSignConvention.
 final class SyncMeasurementEngine {
     struct Configuration {
         var pairingWindowSeconds: Double = 1.0
+        /// Accept a pair only if |audio − video| is inside this window.
+        var maxPairOffsetSeconds: Double = 0.25
         var calibrationOffsetMilliseconds: Double = 0
         var stabilityThresholdMilliseconds: Double = 8
         var outlierMADMultiplier: Double = 3.5
@@ -115,14 +119,14 @@ final class SyncMeasurementEngine {
         guard let flash = pendingFlashes.first, let pulse = pendingPulses.first else {
             return nil
         }
-        let window = configuration.pairingWindowSeconds
         let dt = pulse.timestampSeconds - flash.timestampSeconds
-        if abs(dt) <= window {
+        if abs(dt) <= configuration.maxPairOffsetSeconds {
             pendingFlashes.removeFirst()
             pendingPulses.removeFirst()
             return emitPair(flash: flash, pulse: pulse)
         }
-        // Not pairable: expire the older head so it cannot pile up as pairing debt.
+        // Not pairable: expire the older head so a ring-down replica cannot steal
+        // the next flash (1:1 chronological, extra pulses expire unpaired).
         if flash.timestampSeconds < pulse.timestampSeconds {
             pendingFlashes.removeFirst()
             rejectUnpairedFlash(flash)
@@ -219,6 +223,40 @@ final class SyncMeasurementEngine {
             audioThreshold: pulse.threshold,
             captureFPS: nil
         ))
+    }
+
+    /// Flash/pulse seen while CaptureClock is still blending. Logged, not paired.
+    func noteHeldForClock(flash: VisualFlashEvent? = nil, pulse: AudioPulseEvent? = nil) {
+        if let flash {
+            appendDiagnostic(DiagnosticEvent(
+                id: UUID(),
+                kind: .clockSettling,
+                message: String(format: "Clock settling — flash not published  v %.4f  luma %.3f", flash.timestampSeconds, flash.luminance),
+                videoPTS: flash.timestampSeconds,
+                audioPTS: nil,
+                offsetMilliseconds: nil,
+                luminance: flash.luminance,
+                visualThreshold: flash.threshold,
+                audioEnvelope: nil,
+                audioThreshold: nil,
+                captureFPS: nil
+            ))
+        }
+        if let pulse {
+            appendDiagnostic(DiagnosticEvent(
+                id: UUID(),
+                kind: .clockSettling,
+                message: String(format: "Clock settling — audio not published  a %.4f  env %.3f  thr %.3f", pulse.timestampSeconds, pulse.envelope, pulse.threshold),
+                videoPTS: nil,
+                audioPTS: pulse.timestampSeconds,
+                offsetMilliseconds: nil,
+                luminance: nil,
+                visualThreshold: nil,
+                audioEnvelope: pulse.envelope,
+                audioThreshold: pulse.threshold,
+                captureFPS: nil
+            ))
+        }
     }
 
     private func applyConfigurationToStats() {

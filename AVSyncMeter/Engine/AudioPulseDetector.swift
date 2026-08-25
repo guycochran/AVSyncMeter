@@ -16,12 +16,15 @@ final class AudioPulseDetector {
         var sensitivity: Double = 0.65
         var manualThreshold: Double?
         /// Seconds the detector stays deaf after a hit so tails are not extra events.
-        var maskSeconds: Double = 0.22
+        /// Harkwood Sync-One2 is 1 Hz; 300–500 ms dead time is fine.
+        var maskSeconds: Double = 0.40
         /// First-sample onset vs noise floor. Independent of the trigger.
         var onsetNoiseMultiple: Double = 4.0
         var triggerNoiseMultiple: Double = 12.0
         var absoluteOnsetFloor: Double = 0.02
         var absoluteTriggerFloor: Double = 0.05
+        /// After the mask, stay deaf until envelope falls below this fraction of threshold.
+        var rearmQuietFraction: Double = 0.35
         /// Quiet-hop noise-floor half-life. Slow rise, fast fall.
         var noiseHalfLifeSeconds: Double = 0.6
         var confirmationSamples: Int = 6
@@ -35,6 +38,7 @@ final class AudioPulseDetector {
     private(set) var lastThreshold: Double = 0.08
     private var hasBaseline = false
     private var maskUntilSeconds: Double = -1
+    private var awaitingRearm = false
     private var previousEnvelope: Double = 0
     private var tail: [Float] = []
     private var tailStartSeconds: Double = 0
@@ -49,6 +53,7 @@ final class AudioPulseDetector {
         baseline = 0
         hasBaseline = false
         maskUntilSeconds = -1
+        awaitingRearm = false
         previousEnvelope = 0
         lastThreshold = 0.08
         tail.removeAll()
@@ -109,12 +114,24 @@ final class AudioPulseDetector {
                 continue
             }
 
+            if awaitingRearm {
+                let rearmQuiet = rms < max(lastThreshold * configuration.rearmQuietFraction, baseline * 3, 0.02)
+                previousEnvelope = rms
+                if rearmQuiet {
+                    awaitingRearm = false
+                    updateNoiseFloor(rms: rms, dt: dt)
+                }
+                i = end
+                continue
+            }
+
             let quiet = rms < max(lastThreshold * 0.35, baseline * 3)
             if quiet {
                 updateNoiseFloor(rms: rms, dt: dt)
             }
 
-            let trigger = rms > lastThreshold
+            // Must clear threshold with real headroom so a 0.001 gap above env cannot fire.
+            let trigger = rms > lastThreshold * 1.12
                 && rms > previousEnvelope + lastThreshold * 0.25
                 && rms > baseline * configuration.triggerNoiseMultiple * 0.5
 
@@ -129,6 +146,7 @@ final class AudioPulseDetector {
                 )
                 let onset = combinedStart + Double(onsetIndex) / sampleRate
                 maskUntilSeconds = onset + configuration.maskSeconds
+                awaitingRearm = true
                 event = AudioPulseEvent(timestampSeconds: onset, envelope: rms, threshold: lastThreshold)
                 previousEnvelope = rms
                 break
@@ -166,14 +184,21 @@ final class AudioPulseDetector {
             previousEnvelope = envelope
             return nil
         }
+        if awaitingRearm {
+            let rearmQuiet = envelope < max(lastThreshold * configuration.rearmQuietFraction, baseline * 3, 0.02)
+            previousEnvelope = envelope
+            if rearmQuiet { awaitingRearm = false }
+            return nil
+        }
         if envelope < max(lastThreshold * 0.35, baseline * 3) {
             updateNoiseFloor(rms: envelope, dt: 0.005)
         }
-        let trigger = envelope > lastThreshold
+        let trigger = envelope > lastThreshold * 1.12
             && envelope > previousEnvelope + lastThreshold * 0.25
         previousEnvelope = envelope
         if trigger {
             maskUntilSeconds = timestampSeconds + configuration.maskSeconds
+            awaitingRearm = true
             return AudioPulseEvent(
                 timestampSeconds: timestampSeconds,
                 envelope: envelope,
@@ -186,8 +211,11 @@ final class AudioPulseDetector {
     func effectiveThreshold(relativeToBaseline base: Double) -> Double {
         if let manual = configuration.manualThreshold { return max(0.002, manual) }
         let floor = configuration.absoluteTriggerFloor - configuration.sensitivity * 0.03
-        let fromNoise = base * configuration.triggerNoiseMultiple
-        return max(0.02, max(floor, fromNoise) * (1.4 - configuration.sensitivity * 0.4))
+        // Quiet-only floor already; never let threshold sit a mill above the noise.
+        let noiseFloor = max(base, 0.004)
+        let fromNoise = noiseFloor * configuration.triggerNoiseMultiple
+        let raw = max(floor, fromNoise)
+        return max(0.05, raw * (1.4 - configuration.sensitivity * 0.4))
     }
 
     private func onsetThreshold() -> Double {

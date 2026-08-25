@@ -90,7 +90,7 @@ struct HostHarness {
         do {
             let e = engine()
             for i in 0..<6 { _ = pair(e, tVideo: Double(i), tAudio: Double(i) + 0.200) }
-            _ = pair(e, tVideo: 10.0, tAudio: 10.0 + 0.850)
+            _ = pair(e, tVideo: 10.0, tAudio: 10.0 + 0.240)
             let snap = e.snapshot()
             expect(snap.validCount == 6 && snap.outlierCount == 1 && abs(snap.medianMilliseconds - 200) < 0.1, "extreme outlier")
         }
@@ -160,7 +160,7 @@ struct HostHarness {
             for i in 0..<28 {
                 _ = pair(e, tVideo: Double(i), tAudio: Double(i) + 0.200)
             }
-            _ = pair(e, tVideo: 40.0, tAudio: 40.0 + 0.850)
+            _ = pair(e, tVideo: 40.0, tAudio: 40.0 + 0.240)
             let snap = e.snapshot()
             expect(snap.validCount == 28 && snap.outlierCount == 1 && snap.recentValidSamples.count == 25, "recent table size")
             expect(!(snap.recentValidSamples.contains { $0.isOutlier }), "recent table omits outliers")
@@ -174,14 +174,14 @@ struct HostHarness {
             let e = engine()
             expect(e.snapshot().correctedMedianMilliseconds == nil, "empty snapshot median nil")
             _ = pair(e, tVideo: 0, tAudio: 0.100)
-            _ = pair(e, tVideo: 1, tAudio: 1.200)
-            _ = pair(e, tVideo: 2, tAudio: 2.300)
+            _ = pair(e, tVideo: 1, tAudio: 1.160)
+            _ = pair(e, tVideo: 2, tAudio: 2.220)
             let snap = e.snapshot()
-            expect(abs((snap.currentOffsetMilliseconds ?? 0) - 300) < 0.01, "last pair is 300")
-            expect(abs(snap.medianMilliseconds - 200) < 0.01, "median of 100/200/300 is 200")
-            expect(abs((snap.correctedMedianMilliseconds ?? 0) - 200) < 0.01, "headline uses median not last")
+            expect(abs((snap.currentOffsetMilliseconds ?? 0) - 220) < 0.01, "last pair is 220")
+            expect(abs(snap.medianMilliseconds - 160) < 0.01, "median of 100/160/220 is 160")
+            expect(abs((snap.correctedMedianMilliseconds ?? 0) - 160) < 0.01, "headline uses median not last")
             e.configuration.calibrationOffsetMilliseconds = 10
-            expect(abs((e.snapshot().correctedMedianMilliseconds ?? 0) - 190) < 0.01, "headline median minus cal")
+            expect(abs((e.snapshot().correctedMedianMilliseconds ?? 0) - 150) < 0.01, "headline median minus cal")
         }
 
         // MARK: - Constant offset must not climb (the walking-number tests)
@@ -270,6 +270,130 @@ struct HostHarness {
             }
             let walk = e.snapshot().walkMsPerEvent ?? 999
             expect(abs(walk) < 0.001, "engine walk on constant injected pairs is 0", String(format: "walk %.6f", walk))
+        }
+
+        // MARK: - Clock must settle before pairs are published
+
+        func warmupClock(_ clock: CaptureClock, seconds: Double, audioPpm: Double = 0) {
+            var t = 0.0
+            while t <= seconds {
+                _ = clock.observe(stream: .video, ptsSeconds: t, hostSeconds: t)
+                t += 1.0 / 60.0
+            }
+            t = 0.0
+            let audioRate = 1.0 + audioPpm / 1_000_000.0
+            while t <= seconds {
+                _ = clock.observe(stream: .audio, ptsSeconds: t * audioRate, hostSeconds: t)
+                t += 0.01
+            }
+        }
+
+        func publishIfSettled(_ clock: CaptureClock, _ e: SyncMeasurementEngine, tVideo: Double, tAudio: Double) -> SyncSample? {
+            guard clock.allowsPublishedPairs else { return nil }
+            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: tVideo, luminance: 0.8, threshold: 0.1))
+            return e.ingestPulse(AudioPulseEvent(timestampSeconds: tAudio, envelope: 0.4, threshold: 0.1))
+        }
+
+        do {
+            let clock = CaptureClock()
+            let e = engine()
+            var t = 0.0
+            while t <= 0.25 {
+                _ = clock.observe(stream: .video, ptsSeconds: t, hostSeconds: t)
+                _ = clock.observe(stream: .audio, ptsSeconds: t, hostSeconds: t)
+                t += 1.0 / 60.0
+            }
+            expect(!clock.snapshot().settled && !clock.allowsPublishedPairs, "clock not settled after 0.25 s")
+            let held = publishIfSettled(clock, e, tVideo: 0.20, tAudio: 0.206)
+            expect(held == nil && e.snapshot().validCount == 0, "clock not settled → no published pairs")
+            e.noteHeldForClock(
+                flash: VisualFlashEvent(timestampSeconds: 0.20, luminance: 0.8, threshold: 0.1),
+                pulse: AudioPulseEvent(timestampSeconds: 0.206, envelope: 0.4, threshold: 0.1)
+            )
+            expect(e.diagnostics.contains(where: { $0.kind == .clockSettling }), "settling events are logged, not paired")
+        }
+
+        do {
+            // One beep plus ring-down replicas 200–400 ms later must be one onset.
+            let d = AudioPulseDetector()
+            let rate = 48_000.0
+            let buf = 1024
+            func feed(from t0: Double, until t1: Double, paint: (Double) -> Float) -> [AudioPulseEvent] {
+                var hits: [AudioPulseEvent] = []
+                var t = t0
+                while t < t1 {
+                    let n = buf
+                    var samples = [Float](repeating: 0, count: n)
+                    for i in 0..<n {
+                        samples[i] = paint(t + Double(i) / rate)
+                    }
+                    if let ev = d.processMonoSamples(samples, bufferStartSeconds: t, sampleRate: rate) {
+                        hits.append(ev)
+                    }
+                    t += Double(n) / rate
+                }
+                return hits
+            }
+            func sample(at t: Double) -> Float {
+                func burst(_ start: Double, amp: Float, dur: Double) -> Float {
+                    guard t >= start && t < start + dur else { return 0 }
+                    return amp
+                }
+                var x: Float = 0.001
+                x = max(x, burst(1.000, amp: 0.80, dur: 0.010))
+                x = max(x, burst(1.220, amp: 0.12, dur: 0.008))
+                x = max(x, burst(1.350, amp: 0.08, dur: 0.008))
+                x = max(x, burst(1.400, amp: 0.06, dur: 0.008))
+                return x
+            }
+            _ = feed(from: 0.0, until: 0.8, paint: { _ in 0.001 })
+            let first = feed(from: 0.8, until: 1.7, paint: sample)
+            expect(first.count == 1, "one beep with ring-down replicas → one onset", "hits=\(first.count)")
+            if let onset = first.first {
+                expect(abs(onset.timestampSeconds - 1.0) < 0.005, "onset walks back to the real attack", String(format: "onset %.4f", onset.timestampSeconds))
+            }
+        }
+
+        do {
+            // Extra 300 ms replica expires unpaired instead of stealing the next flash.
+            let e = engine()
+            _ = pair(e, tVideo: 1.0, tAudio: 1.006)
+            _ = e.ingestPulse(AudioPulseEvent(timestampSeconds: 1.300, envelope: 0.12, threshold: 0.05))
+            _ = pair(e, tVideo: 2.0, tAudio: 2.006)
+            let snap = e.snapshot()
+            expect(snap.validCount == 2, "replica does not steal next flash", "n=\(snap.validCount)")
+            expect(snap.rejectedCount >= 1, "replica expires unpaired")
+            let offsets = snap.recentValidSamples.map(\.offsetMilliseconds)
+            expect(offsets.allSatisfy { abs($0 - 6) < 0.5 }, "both pairs stay ~+6 ms", "\(offsets)")
+        }
+
+        do {
+            // Constant +6 ms over 15 events after lock stays flat.
+            let clock = CaptureClock()
+            warmupClock(clock, seconds: 2.5, audioPpm: 1000)
+            expect(clock.allowsPublishedPairs, "clock settled after 2.5 s warmup")
+            let e = engine()
+            var offsets: [Double] = []
+            for i in 0..<15 {
+                let hostV = 3.0 + Double(i)
+                let hostA = hostV + 0.006
+                _ = clock.observe(stream: .video, ptsSeconds: hostV, hostSeconds: hostV)
+                _ = clock.observe(stream: .audio, ptsSeconds: hostA * 1.001, hostSeconds: hostA)
+                let vU = clock.unified(stream: .video, ptsSeconds: hostV)
+                let aU = clock.unified(stream: .audio, ptsSeconds: hostA * 1.001)
+                guard clock.allowsPublishedPairs else { continue }
+                _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: vU, luminance: 0.8, threshold: 0.1))
+                if let s = e.ingestPulse(AudioPulseEvent(timestampSeconds: aU, envelope: 0.4, threshold: 0.1)) {
+                    offsets.append(s.offsetMilliseconds)
+                }
+            }
+            let med = MeasurementStatistics.median(offsets)
+            let walk = MeasurementStatistics.walkMsPerEvent(offsets) ?? 999
+            let span = (offsets.max() ?? 0) - (offsets.min() ?? 0)
+            expect(offsets.count == 15, "15 events after lock", "n=\(offsets.count)")
+            expect(abs(med - 6) < 3.0, "after lock median ~+6 ms", String(format: "med %.3f", med))
+            expect(abs(walk) < 0.15, "after lock +6 ms stays flat", String(format: "walk %.4f span %.3f", walk, span))
+            expect(span < 5.0, "after lock span tight", String(format: "span %.3f", span))
         }
 
         if failed == 0 {

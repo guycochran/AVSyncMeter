@@ -98,8 +98,13 @@ struct MeasurementView: View {
 
     private var resultBlock: some View {
         let offset = session.snapshot.correctedMedianMilliseconds
-        let direction = offset.map { MeasurementSession.headline($0) } ?? (session.runState == .idle ? "IDLE" : "LISTENING")
+        let settling = session.runState != .idle && !session.clockSnapshot.settled && offset == nil
+        let direction: String = {
+            if settling { return "CLOCK SETTLING" }
+            return offset.map { MeasurementSession.headline($0) } ?? (session.runState == .idle ? "IDLE" : "LISTENING")
+        }()
         let color: Color = {
+            if settling { return VenueTheme.meter }
             guard let offset else { return VenueTheme.dim }
             if abs(offset) < 0.5 { return VenueTheme.stable }
             return offset > 0 ? VenueTheme.early : VenueTheme.late
@@ -124,7 +129,7 @@ struct MeasurementView: View {
                 Text("— ms")
                     .font(.system(size: 44, weight: .bold, design: .monospaced))
                     .foregroundStyle(VenueTheme.dim)
-                Text("No pairs yet")
+                Text(settling ? "Warming capture clock — pairs not published" : "No pairs yet")
                     .font(.system(size: 14, design: .monospaced))
                     .foregroundStyle(VenueTheme.dim)
             }
@@ -154,7 +159,11 @@ struct MeasurementView: View {
 
     private var walkBadge: some View {
         Group {
-            if let walk = session.snapshot.walkMsPerEvent {
+            if session.runState != .idle && !session.clockSnapshot.settled && session.snapshot.validCount == 0 {
+                Text("WALK — (clock settling)")
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundStyle(VenueTheme.meter)
+            } else if let walk = session.snapshot.walkMsPerEvent {
                 let flat = abs(walk) < 0.2
                 Text(String(format: "WALK %+.2f ms/beep", walk))
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
