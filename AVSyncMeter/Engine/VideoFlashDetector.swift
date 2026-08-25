@@ -5,11 +5,14 @@ import CoreVideo
 ///
 /// First reliable edge: the first frame whose rise vs the previous frame clears a
 /// fixed threshold *and* sits above a slow dark floor. The dark floor is updated
-/// only on quiet frames (not during the flash, not during holdoff). A lagging
-/// EMA that includes the flash is how a threshold can walk 1 ms/s; this detector
-/// does not do that.
+/// only on quiet frames (not during the flash, not during holdoff), and it always
+/// snaps down when a darker frame appears so a bright first sample cannot hide
+/// later flashes. A lagging EMA that includes the flash is how a threshold can
+/// walk 1 ms/s; this detector does not do that.
 ///
-/// One flash = one event via latch + ~400 ms holdoff + re-arm on the falling edge.
+/// One flash = one event via latch + ~400 ms holdoff + re-arm on a *relative*
+/// drop from the flash peak toward the pre-flash floor. Absolute "must go dark"
+/// fails when locked AE never returns to the original floor.
 final class VideoFlashDetector {
     struct Configuration {
         var regionFraction: Double = 0.35
@@ -22,6 +25,9 @@ final class VideoFlashDetector {
         var holdoffSeconds: Double = 0.40
         /// Quiet-frame dark-floor blend. Small on purpose — this is not an onset tracker.
         var floorAlpha: Double = 0.02
+        /// Re-arm once luma has fallen this fraction of (peak − pre-flash floor).
+        /// 0.5 = halfway back toward the floor, not an absolute dark level.
+        var rearmDropFraction: Double = 0.50
     }
 
     var configuration: Configuration
@@ -33,6 +39,8 @@ final class VideoFlashDetector {
     private var holdoffUntilSeconds: Double = -1
     private var awaitingRearm = false
     private var previousLuminance: Double = 0
+    private var peakLuminance: Double = 0
+    private var floorAtHit: Double = 0
 
     init(configuration: Configuration = Configuration()) {
         self.configuration = configuration
@@ -45,6 +53,8 @@ final class VideoFlashDetector {
         holdoffUntilSeconds = -1
         awaitingRearm = false
         previousLuminance = 0
+        peakLuminance = 0
+        floorAtHit = 0
     }
 
     func processPixelBuffer(_ pixelBuffer: CVPixelBuffer, timestampSeconds: Double) -> VisualFlashEvent? {
@@ -65,15 +75,21 @@ final class VideoFlashDetector {
             return nil
         }
 
+        // Asymmetric floor: a darker frame always pulls the floor down. A bright
+        // first frame (or a mid-flash start) must not permanently hide 1 Hz flashes.
+        if luminance < baseline {
+            baseline = luminance
+        }
+
         if timestampSeconds < holdoffUntilSeconds {
+            if luminance > peakLuminance { peakLuminance = luminance }
             previousLuminance = luminance
             return nil
         }
 
         if awaitingRearm {
-            // Re-arm only after the field has actually fallen. A stuck-bright
-            // screen / AE recovery must not fire again until it goes dark.
-            if luminance < baseline + lastThreshold * 0.45 {
+            if luminance > peakLuminance { peakLuminance = luminance }
+            if shouldRearm(luminance: luminance) {
                 awaitingRearm = false
             } else {
                 previousLuminance = luminance
@@ -88,6 +104,8 @@ final class VideoFlashDetector {
         if hit {
             awaitingRearm = true
             holdoffUntilSeconds = timestampSeconds + configuration.holdoffSeconds
+            peakLuminance = luminance
+            floorAtHit = min(baseline, previousLuminance)
             previousLuminance = luminance
             // Do not fold the flash into the dark floor.
             return VisualFlashEvent(
@@ -112,7 +130,19 @@ final class VideoFlashDetector {
         return max(0.03, 0.28 - configuration.sensitivity * 0.24)
     }
 
+    /// Re-arm on a relative drop from the flash peak, not an absolute dark.
+    /// Locked AE can leave luma on an elevated floor that never crosses
+    /// `baseline + threshold * 0.45`.
+    private func shouldRearm(luminance: Double) -> Bool {
+        let span = max(peakLuminance - floorAtHit, lastThreshold)
+        let drop = peakLuminance - luminance
+        return drop >= span * configuration.rearmDropFraction
+    }
+
     /// Average luma in the central square. Supports 32BGRA and 420f/420v via the Y plane.
+    /// Connection rotation does not remap this buffer: plane 0 is still luma, and the
+    /// region is the buffer center. A flat reading here is real scene/AE luma, not a
+    /// format mix-up.
     func averageLuminance(in pixelBuffer: CVPixelBuffer, regionFraction: Double) -> Double {
         CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }

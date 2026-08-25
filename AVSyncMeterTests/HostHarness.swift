@@ -481,6 +481,103 @@ struct HostHarness {
             }
         }
 
+        // MARK: - Build 8: flash must fire at 1 Hz even with lock-style flattened luma
+
+        do {
+            // Zero-flash regression: dark floor then 1 Hz white flashes must
+            // produce one event per flash. Reintroducing a dead detector fails here.
+            let d = VideoFlashDetector()
+            let fps = 60.0
+            func luma(_ t: Double) -> Double {
+                let phase = t.truncatingRemainder(dividingBy: 1.0)
+                // ~2 frames of white at each integer second, otherwise dark.
+                if t >= 1.0 && phase < 2.0 / fps { return 0.87 }
+                return 0.05
+            }
+            var times: [Double] = []
+            var t = 0.0
+            while t < 9.0 {
+                if let ev = d.processLuminance(luma(t), timestampSeconds: t) {
+                    times.append(ev.timestampSeconds)
+                }
+                t += 1.0 / fps
+            }
+            expect(times.count == 8, "1 Hz white flash on dark field is one event each (zero-flash regression)", "n=\(times.count) times=\(times.map { String(format: "%.3f", $0) })")
+            if times.count == 8 {
+                for i in 0..<8 {
+                    expect(abs(times[i] - Double(i + 1)) < 0.03, "1 Hz flash \(i + 1) on the second", String(format: "%.4f", times[i]))
+                }
+            }
+        }
+
+        do {
+            // Bright first frame must not hide later flashes (asymmetric floor).
+            let d = VideoFlashDetector()
+            var hits = 0
+            if d.processLuminance(0.90, timestampSeconds: 0.0) != nil { hits += 1 }
+            for i in 1..<30 {
+                if d.processLuminance(0.05, timestampSeconds: Double(i) / 60.0) != nil { hits += 1 }
+            }
+            if d.processLuminance(0.87, timestampSeconds: 1.0) != nil { hits += 1 }
+            expect(hits == 1, "bright first frame then dark then flash still fires", "hits=\(hits)")
+        }
+
+        do {
+            // After holdoff, still-bright field must not re-arm / re-fire.
+            let d = VideoFlashDetector()
+            var hits = 0
+            for i in 0..<30 {
+                if d.processLuminance(0.05, timestampSeconds: Double(i) / 60.0) != nil { hits += 1 }
+            }
+            if d.processLuminance(0.87, timestampSeconds: 1.0) != nil { hits += 1 }
+            var t = 1.0 + 1.0 / 60.0
+            while t < 2.2 {
+                if d.processLuminance(0.80, timestampSeconds: t) != nil { hits += 1 }
+                t += 1.0 / 60.0
+            }
+            expect(hits == 1, "stuck-bright after 400 ms holdoff does not re-fire", "hits=\(hits)")
+        }
+
+        do {
+            // Lock-style elevated floor: after the first flash, luma never
+            // returns to the original dark (AE pumped). Re-arm on relative
+            // drop from peak, then 1 Hz flashes with remaining contrast still
+            // fire. Completely crushed (flat) luma is a capture problem, not
+            // something the detector can invent — see the next case.
+            let d = VideoFlashDetector()
+            let fps = 60.0
+            func luma(_ t: Double) -> Double {
+                let phase = t.truncatingRemainder(dividingBy: 1.0)
+                let flashing = t >= 1.0 && phase < 2.0 / fps
+                if flashing { return t < 1.5 ? 0.87 : 0.70 }
+                if t < 1.0 { return 0.05 }
+                return 0.22
+            }
+            var times: [Double] = []
+            var t = 0.0
+            while t < 6.0 {
+                if let ev = d.processLuminance(luma(t), timestampSeconds: t) {
+                    times.append(ev.timestampSeconds)
+                }
+                t += 1.0 / fps
+            }
+            expect(times.count == 5, "elevated post-flash floor still yields 1 Hz events", "n=\(times.count) times=\(times.map { String(format: "%.3f", $0) })")
+        }
+
+        do {
+            // Honest limit: AE-crushed flat luma (no rise) cannot be recovered
+            // in software. CaptureManager must not lock AE. This documents the
+            // zero-flash failure mode; it is not a detector pass.
+            let d = VideoFlashDetector()
+            var hits = 0
+            var t = 0.0
+            while t < 5.0 {
+                if d.processLuminance(0.15, timestampSeconds: t) != nil { hits += 1 }
+                t += 1.0 / 60.0
+            }
+            expect(hits == 0, "flat luma after crushed AE produces no invented flashes", "hits=\(hits)")
+        }
+
         do {
             let clock = CaptureClock()
             warmupClock(clock, seconds: 3.0)

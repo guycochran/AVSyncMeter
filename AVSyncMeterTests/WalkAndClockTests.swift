@@ -342,4 +342,83 @@ final class WalkAndClockTests: XCTestCase {
         }
         XCTAssertEqual(e.snapshot().validCount, 4)
     }
+    func testOneHzWhiteFlashOnDarkFieldIsOneEventEach() {
+        let d = VideoFlashDetector()
+        let fps = 60.0
+        func luma(_ t: Double) -> Double {
+            let phase = t.truncatingRemainder(dividingBy: 1.0)
+            if t >= 1.0 && phase < 2.0 / fps { return 0.87 }
+            return 0.05
+        }
+        var times: [Double] = []
+        var t = 0.0
+        while t < 9.0 {
+            if let ev = d.processLuminance(luma(t), timestampSeconds: t) {
+                times.append(ev.timestampSeconds)
+            }
+            t += 1.0 / fps
+        }
+        XCTAssertEqual(times.count, 8, "zero-flash regression: got \(times)")
+        for i in 0..<min(8, times.count) {
+            XCTAssertEqual(times[i], Double(i + 1), accuracy: 0.03)
+        }
+    }
+
+    func testBrightFirstFrameDoesNotHideLaterFlash() {
+        let d = VideoFlashDetector()
+        var hits = 0
+        if d.processLuminance(0.90, timestampSeconds: 0.0) != nil { hits += 1 }
+        for i in 1..<30 {
+            if d.processLuminance(0.05, timestampSeconds: Double(i) / 60.0) != nil { hits += 1 }
+        }
+        if d.processLuminance(0.87, timestampSeconds: 1.0) != nil { hits += 1 }
+        XCTAssertEqual(hits, 1)
+    }
+
+    func testStuckBrightAfterHoldoffDoesNotRefire() {
+        let d = VideoFlashDetector()
+        var hits = 0
+        for i in 0..<30 {
+            if d.processLuminance(0.05, timestampSeconds: Double(i) / 60.0) != nil { hits += 1 }
+        }
+        if d.processLuminance(0.87, timestampSeconds: 1.0) != nil { hits += 1 }
+        var t = 1.0 + 1.0 / 60.0
+        while t < 2.2 {
+            if d.processLuminance(0.80, timestampSeconds: t) != nil { hits += 1 }
+            t += 1.0 / 60.0
+        }
+        XCTAssertEqual(hits, 1)
+    }
+
+    func testElevatedPostFlashFloorStillYieldsOneHzEvents() {
+        let d = VideoFlashDetector()
+        let fps = 60.0
+        func luma(_ t: Double) -> Double {
+            let phase = t.truncatingRemainder(dividingBy: 1.0)
+            let flashing = t >= 1.0 && phase < 2.0 / fps
+            if flashing { return t < 1.5 ? 0.87 : 0.70 }
+            if t < 1.0 { return 0.05 }
+            return 0.22
+        }
+        var times: [Double] = []
+        var t = 0.0
+        while t < 6.0 {
+            if let ev = d.processLuminance(luma(t), timestampSeconds: t) {
+                times.append(ev.timestampSeconds)
+            }
+            t += 1.0 / fps
+        }
+        XCTAssertEqual(times.count, 5, "got \(times)")
+    }
+
+    func testFlatLumaInventNoFlashes() {
+        let d = VideoFlashDetector()
+        var hits = 0
+        var t = 0.0
+        while t < 5.0 {
+            if d.processLuminance(0.15, timestampSeconds: t) != nil { hits += 1 }
+            t += 1.0 / 60.0
+        }
+        XCTAssertEqual(hits, 0)
+    }
 }

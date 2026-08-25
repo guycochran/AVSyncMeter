@@ -68,7 +68,7 @@ final class CaptureManager: NSObject, ObservableObject {
                 if !self.session.isRunning {
                     self.session.startRunning()
                 }
-                self.applyMeteringLock()
+                self.applyFocusLockLeavingExposureOpen()
                 DispatchQueue.main.async {
                     self.isRunning = true
                     self.lastError = nil
@@ -161,8 +161,9 @@ final class CaptureManager: NSObject, ObservableObject {
                 camera.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 60)
                 camera.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 60)
             }
-            // Converge on the screen first; applyMeteringLock freezes AE/AWB/AF
-            // once the session is running so a flash cannot pump exposure.
+            // Converge on the screen. Do not freeze AE: locking exposure on a
+            // dark monitor (or mid-flash) crushes ISO so the white flash never
+            // crosses the luma threshold. 400 ms holdoff swallows AE recovery.
             if camera.isFocusModeSupported(.continuousAutoFocus) {
                 camera.focusMode = .continuousAutoFocus
             }
@@ -177,15 +178,19 @@ final class CaptureManager: NSObject, ObservableObject {
         }
     }
 
-    /// Freeze AE / AWB / AF while measuring. A flash that pumps auto-exposure
-    /// recovers as a second luma rise ~150 ms later and steals the next pulse.
-    func lockMeteringWhileMeasuring() {
+    /// Lock focus only. Build 7 locked AE/AWB/AF on session start; locking
+    /// exposure on a dark monitor (or mid-flash) flattened luma so the flash
+    /// never crossed thr ~0.124 (previous builds logged FLASH luma ~0.87).
+    /// Leave AE and AWB continuous. 400 ms video holdoff already swallows the
+    /// AE-recovery double-pump that this lock was meant to prevent. HDR and
+    /// low-light boost stay off so the ISP does not compress the flash.
+    func lockFocusWhileMeasuring() {
         sessionQueue.async { [weak self] in
-            self?.applyMeteringLock()
+            self?.applyFocusLockLeavingExposureOpen()
         }
     }
 
-    private func applyMeteringLock() {
+    private func applyFocusLockLeavingExposureOpen() {
         guard let camera = videoDevice else { return }
         do {
             try camera.lockForConfiguration()
@@ -193,11 +198,12 @@ final class CaptureManager: NSObject, ObservableObject {
             if camera.isFocusModeSupported(.locked) {
                 camera.focusMode = .locked
             }
-            if camera.isExposureModeSupported(.locked) {
-                camera.exposureMode = .locked
+            // Do not lock exposure. Continuous AE keeps flash contrast.
+            if camera.isExposureModeSupported(.continuousAutoExposure) {
+                camera.exposureMode = .continuousAutoExposure
             }
-            if camera.isWhiteBalanceModeSupported(.locked) {
-                camera.whiteBalanceMode = .locked
+            if camera.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                camera.whiteBalanceMode = .continuousAutoWhiteBalance
             }
             camera.isSubjectAreaChangeMonitoringEnabled = false
             if camera.isLowLightBoostSupported {
@@ -210,7 +216,7 @@ final class CaptureManager: NSObject, ObservableObject {
                 }
             }
         } catch {
-            // Metering lock is best-effort; measurement still runs.
+            // Focus lock is best-effort; measurement still runs.
         }
     }
 

@@ -56,7 +56,7 @@ On a known-good source, tap **ZERO** on the main meter (not only the Settings sl
 
 ## Measurement core rewrite (build 5)
 
-Video PTS and audio PTS are no longer subtracted raw. `CaptureClock` maps each stream onto host seconds. Detectors stamp the first flash edge and the beep onset (not a lagging adaptive baseline). Pairing is chronological 1:1. Build 6: do not publish pairs until CaptureClock is settled; 400 ms audio refractory; ±250 ms max pair offset. Build 7: freeze slope at settle, do not fit callback hostNow, 400 ms video holdoff, lock AE/AWB/focus. Install with devicectl only — do not launch. Do not upload TestFlight until Guy says so.
+Video PTS and audio PTS are no longer subtracted raw. `CaptureClock` maps each stream onto host seconds. Detectors stamp the first flash edge and the beep onset (not a lagging adaptive baseline). Pairing is chronological 1:1. Build 6: do not publish pairs until CaptureClock is settled; 400 ms audio refractory; ±250 ms max pair offset. Build 7: freeze slope at settle, do not fit callback hostNow, 400 ms video holdoff. Build 8: do not lock AE (it killed FLASH). Install with devicectl only — do not launch. Do not upload TestFlight until Guy says so.
 
 
 ## Build 6 (clock settle + one onset per beep)
@@ -67,3 +67,8 @@ On-device 0.1.2 (5) SHA 9497a4d published unlocked CaptureClock hits (first read
 
 On-device 0.1.2 (5) still informs this pass: first unlocked hits +55/−11 SPAN 65 were garbage; later ~+6 ms was real residual; extra AUDIOPULSE was ring-down. Build 6 gated unsettled clocks and audio, but (6) still slope-fit session-mapped PTS against callback hostNow (double map), kept blending slope after settle (4 s half-life), used an 8-frame (~133 ms) video holdoff, and never locked AE/AWB/focus. Build 7 freezes slope at settle (force at 2.5 s, drop two events per stream after the gate), uses mapped PTS as both axes on the live path, 400 ms video holdoff + dark re-arm, and locks metering while measuring. Do not hide the ~+6 ms phone residual. Do not install from this tree unless Guy plugs in for install-without-launch.
 
+## Build 8 (do not lock AE; re-arm on relative drop)
+
+On-device 0.1.2 (7) SHA 1370425: AUDIOPULSE every ~1 s, REJECTEDUNPAIRED ~3 s later, **no FLASH, no PAIRED**. Audio worked; video flash detector was dead. Previous builds logged FLASH luma ~0.87. Cause: `applyMeteringLock()` froze AE/AWB/AF on session start. Locking exposure on the dark monitor (or mid-flash) crushes ISO/exposure so the white flash never crosses thr ~0.124, and/or re-arm-on-absolute-dark never sees dark after the 400 ms holdoff. CLOCK SETTLING dropping two events cannot explain a whole pass with zero FLASH.
+
+Build 8 keeps CaptureClock freeze, session-mapped PTS, 400 ms audio refractory, ±250 ms pair window, CLOCK SETTLING gate, sign convention, median headline, last-25, ZERO, cal 0 default. Stops locking AE/AWB (focus lock only; HDR/low-light boost still off). Video still holds ~400 ms so persistence is one event, but re-arms on a relative drop from the flash peak toward the pre-flash floor. Do not hide the ~+6 ms phone residual. Install with devicectl only — do not launch. No TestFlight.
