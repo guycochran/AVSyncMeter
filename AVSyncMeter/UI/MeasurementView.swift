@@ -342,8 +342,9 @@ struct MeasurementView: View {
 
     private var meters: some View {
         VStack(alignment: .leading, spacing: 6) {
-            meter(label: "LUMA", value: session.liveLuminance)
-            meter(label: "MIC ", value: min(1, session.liveAudioLevel * 4))
+            meter(label: "LUMA", value: session.liveLuminance, color: VenueTheme.meter)
+            meter(label: "MIC ", value: min(1, session.liveAudioLevel * 4), color: VenueTheme.late)
+            vuHistory
             if session.capture.observedVideoFPS > 0 {
                 Text(FrameRate.captureFooter(observedFPS: session.capture.observedVideoFPS, picker: settings.frameRate))
                     .font(.system(size: 10, design: .monospaced))
@@ -352,7 +353,60 @@ struct MeasurementView: View {
         }
     }
 
-    private func meter(label: String, value: Double) -> some View {
+    private var vuHistory: some View {
+        let window = MeterHistory.clampedWindow(settings.meterHistorySeconds)
+        let now = session.meterHistory.lastTimestamp
+        return VStack(alignment: .leading, spacing: 3) {
+            Text(String(format: "VU  last %.0fs  ·  newest right", window))
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(VenueTheme.dim)
+            vuStrip(label: "LUMA", color: VenueTheme.meter, now: now, window: window, luma: true)
+            vuStrip(label: "MIC ", color: VenueTheme.late, now: now, window: window, luma: false)
+            HStack {
+                Text(String(format: "−%.0fs", window))
+                Spacer()
+                Text("NOW")
+            }
+            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+            .foregroundStyle(VenueTheme.dim)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(VenueTheme.panel)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+
+    private func vuStrip(label: String, color: Color, now: Double, window: Double, luma: Bool) -> some View {
+        HStack(spacing: 8) {
+            Text(label)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(VenueTheme.dim)
+                .frame(width: 44, alignment: .leading)
+            GeometryReader { geo in
+                let n = max(Int(geo.size.width.rounded()), 1)
+                let cols = luma
+                    ? session.meterHistory.lumaColumns(now: now, windowSeconds: window, count: n)
+                    : session.meterHistory.micColumns(now: now, windowSeconds: window, count: n)
+                Canvas { context, size in
+                    let h = size.height
+                    let w = size.width
+                    context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color.black.opacity(0.35)))
+                    guard n > 0, w > 0, h > 0 else { return }
+                    let barW = w / CGFloat(n)
+                    for (i, v) in cols.enumerated() {
+                        let vh = h * CGFloat(min(1, max(0, v)))
+                        if vh <= 0.5 { continue }
+                        let rect = CGRect(x: CGFloat(i) * barW, y: h - vh, width: max(barW, 1), height: vh)
+                        context.fill(Path(rect), with: .color(color))
+                    }
+                }
+            }
+            .frame(height: 28)
+        }
+    }
+
+    private func meter(label: String, value: Double, color: Color) -> some View {
         HStack(spacing: 8) {
             Text(label)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
@@ -362,7 +416,7 @@ struct MeasurementView: View {
                 ZStack(alignment: .leading) {
                     Rectangle().fill(VenueTheme.line)
                     Rectangle()
-                        .fill(VenueTheme.meter)
+                        .fill(color)
                         .frame(width: max(0, geo.size.width * CGFloat(min(1, max(0, value)))))
                 }
             }

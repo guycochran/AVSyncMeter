@@ -64,6 +64,11 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(showDistanceHelper, forKey: Keys.distanceHelper) }
     }
 
+    /// Measure-screen LUMA+MIC history window, seconds. 1...90, default 30.
+    @Published var meterHistorySeconds: Double {
+        didSet { defaults.set(MeterHistory.clampedWindow(meterHistorySeconds), forKey: Keys.meterHistory) }
+    }
+
     private let defaults: UserDefaults
 
     private enum Keys {
@@ -79,6 +84,7 @@ final class AppSettings: ObservableObject {
         static let stability = "avs.stability"
         static let outlierK = "avs.outlierK"
         static let distanceHelper = "avs.distanceHelper"
+        static let meterHistory = "avs.meterHistorySec"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -104,6 +110,11 @@ final class AppSettings: ObservableObject {
         stabilityThresholdMilliseconds = defaults.object(forKey: Keys.stability) as? Double ?? 8
         outlierMADMultiplier = defaults.object(forKey: Keys.outlierK) as? Double ?? 3.5
         showDistanceHelper = defaults.bool(forKey: Keys.distanceHelper)
+        if defaults.object(forKey: Keys.meterHistory) != nil {
+            meterHistorySeconds = MeterHistory.clampedWindow(defaults.double(forKey: Keys.meterHistory))
+        } else {
+            meterHistorySeconds = MeterHistory.defaultWindowSeconds
+        }
     }
 
     private func persistOptional(_ value: Double?, key: String) {

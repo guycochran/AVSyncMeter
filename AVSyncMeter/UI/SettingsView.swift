@@ -90,6 +90,16 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Meters") {
+                    VStack(alignment: .leading) {
+                        Text(String(format: "VU history %.0f s", settings.meterHistorySeconds))
+                        Slider(value: $settings.meterHistorySeconds, in: MeterHistory.minWindowSeconds...MeterHistory.maxWindowSeconds, step: 1)
+                        Text("Scrolling LUMA + MIC of the last 1–90 seconds on the measure screen. Newest at the right. Default 30 s.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 Section("Info") {
                     Text("AV Sync Meter \(AppVersion.label)")
                         .font(.system(size: 13, weight: .semibold, design: .monospaced))

@@ -23,6 +23,7 @@ final class MeasurementSession: ObservableObject {
     @Published var lastSample: SyncSample?
     @Published var liveLuminance: Double = 0
     @Published var liveAudioLevel: Double = 0
+    let meterHistory = MeterHistory()
     @Published var captureError: String?
     @Published var statusNote: String = "Idle"
     @Published var diagnostics: [DiagnosticEvent] = []
@@ -84,6 +85,7 @@ final class MeasurementSession: ObservableObject {
         snapshot = engine.snapshot()
         clockSnapshot = .empty
         diagnostics = []
+        meterHistory.reset()
         statusNote = runState == .idle ? "Reset" : "LISTENING"
     }
 
@@ -213,8 +215,10 @@ final class MeasurementSession: ObservableObject {
                 }
             }
             let level = self.pulseDetector.lastEnvelope
+            let hostT = CFAbsoluteTimeGetCurrent()
             DispatchQueue.main.async {
                 self.liveAudioLevel = level
+                self.meterHistory.appendMic(t: hostT, value: min(1, level * 4))
             }
             self.publishEngine()
         }
@@ -230,7 +234,10 @@ final class MeasurementSession: ObservableObject {
             self.lastSample = last
             self.diagnostics = logs
             self.clockSnapshot = clock
-            if let luminance { self.liveLuminance = luminance }
+            if let luminance {
+                self.liveLuminance = luminance
+                self.meterHistory.appendLuma(t: CFAbsoluteTimeGetCurrent(), value: luminance)
+            }
             if !clock.settled && self.runState != .idle && snap.validCount == 0 {
                 self.statusNote = "CLOCK SETTLING"
             } else if snap.validCount > 0 {

@@ -95,7 +95,7 @@ Never promotes one event to “the answer.” The main headline uses the median 
 
 `MeasurementSession` owns capture, both detectors, the clock, and the engine. It hops capture callbacks onto a serial measure queue, then publishes to the main thread.
 
-SwiftUI (`MeasurementView`) is dark, low-decoration, venue-friendly: preview + target, huge AUDIO EARLY/LATE + ms, recommended delay, fps/frames, stats, SYNC STABLE/UNSTABLE, WALK ms/beep (green only if walk is flat and SPAN is tight), Start/Stop/Reset. Capture footer is `%.2f` plus NTSC vs integer. Version string is on the header. Settings, Diagnostics, and a Phase 2 test signal (generated PCM beep, not the silent-switch click) are sheets.
+SwiftUI (`MeasurementView`) is dark, low-decoration, venue-friendly: preview + target, huge AUDIO EARLY/LATE + ms, recommended delay, fps/frames, stats, SYNC STABLE/UNSTABLE, WALK ms/beep (green only if walk is flat and SPAN is tight), live LUMA/MIC needles plus a scrolling 1–90 s (default 30 s) peak-held history strip (newest at the right), Start/Stop/Reset. Capture footer is `%.2f` plus NTSC vs integer. Version string is on the header. Settings, Diagnostics, and a Phase 2 test signal (generated PCM beep, not the silent-switch click) are sheets.
 
 ## Calibration
 
@@ -105,7 +105,7 @@ SwiftUI (`MeasurementView`) is dark, low-decoration, venue-friendly: preview + t
 
 `AVSyncMeterTests/SyncMeasurementEngineTests.swift` and `WalkAndClockTests.swift` are the XCTest target. `HostHarness.swift` + `SyntheticRig.swift` is a macOS `@main` runner used when `xcodebuild test` cannot attach to the installed iOS 27 simulator runtime.
 
-The harness requires a constant synthetic offset to stay flat, a +164 ms audio step to move the median by ~164 ms, an already-mapped 30.000 vs 29.97 (1000 ppm) pass whose reported offsets stay flat, and a true-host integer-30 capture vs 29.97-file events pass that walks ~1 ms/beep until capture is locked to 30_000/1001 or 60_000/1001 (then the same constant-delay pass is flat). Integer 30 vs 29.97 content is not visible to relative A−V on unified buffers. Build 11: ±400 ms pair window still rejects 220–350 ms replicas vs the next flash; generated beep PCM exists; WALK is not green on huge SPAN; capture footer distinguishes 29.97 NTSC from integer 30.00. Build 12: voice-like onsets 50/150/250 ms plus a real beep at +80 pair the beep; chatter between 1 Hz flashes does not create pairs; moving luma does not FLASH. Build 13: picker 29.97 selects 1001-family from probed CMTime durations (never silent 1/30; footer says NTSC lock MISS if it cannot); smeared 40–60 ms 1 Hz PA pulse still onsets; 20–40 ms beep at +80 still wins over voice 50/150/250. Build 14: silent-ch0 / int32-as-int16 PA-scale buffers still onset at 89%; crushed env 0.001 does not; smeared 15–80 ms still pairs; speech still rejected; measurement-mode session policy (not voiceChat).
+The harness requires a constant synthetic offset to stay flat, a +164 ms audio step to move the median by ~164 ms, an already-mapped 30.000 vs 29.97 (1000 ppm) pass whose reported offsets stay flat, and a true-host integer-30 capture vs 29.97-file events pass that walks ~1 ms/beep until capture is locked to 30_000/1001 or 60_000/1001 (then the same constant-delay pass is flat). Integer 30 vs 29.97 content is not visible to relative A−V on unified buffers. Build 11: ±400 ms pair window still rejects 220–350 ms replicas vs the next flash; generated beep PCM exists; WALK is not green on huge SPAN; capture footer distinguishes 29.97 NTSC from integer 30.00. Build 12: voice-like onsets 50/150/250 ms plus a real beep at +80 pair the beep; chatter between 1 Hz flashes does not create pairs; moving luma does not FLASH. Build 13: picker 29.97 selects 1001-family from probed CMTime durations (never silent 1/30; footer says NTSC lock MISS if it cannot); smeared 40–60 ms 1 Hz PA pulse still onsets; 20–40 ms beep at +80 still wins over voice 50/150/250. Build 14: silent-ch0 / int32-as-int16 PA-scale buffers still onset at 89%; crushed env 0.001 does not; smeared 15–80 ms still pairs; speech still rejected; measurement-mode session policy (not voiceChat). Build 15: VU history window clamps 1–90 s (default 30); 1-frame luma flash and mic pulse peak-hold at the rightmost column; RESET clears the strip.
 
 ## File map
 
@@ -118,6 +118,7 @@ The harness requires a constant synthetic offset to stay flat, a +164 ms audio s
 | `Engine/AudioPulseDetector.swift` | Onset with frozen noise floor; beep-like vs voice |
 | `Engine/SyncMeasurementEngine.swift` | One pending each; beep-like only pairs |
 | `Engine/MeasurementStatistics.swift` | Stats + MAD + walk |
+| `Engine/MeterHistory.swift` | Scrolling LUMA+MIC VU (display only) |
 | `Engine/TestSignalBeep.swift` | Generated 1 kHz PCM / WAV for SIG (not a measurement timestamp) |
 | `Engine/AppSettings.swift` | UserDefaults |
 | `Engine/MeasurementSession.swift` | Glue (not the algorithm) |

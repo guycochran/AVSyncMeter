@@ -1517,6 +1517,63 @@ struct HostHarness {
         }
 
 
+        // MARK: - Build 15: scrolling LUMA+MIC VU of the last 1–90 s
+
+        do {
+            expect(abs(MeterHistory.defaultWindowSeconds - 30) < 1e-9, "VU default window is 30 s")
+            expect(abs(MeterHistory.clampedWindow(0) - 1) < 1e-9, "VU window floor 1 s")
+            expect(abs(MeterHistory.clampedWindow(90) - 90) < 1e-9, "VU window ceiling 90 s")
+            expect(abs(MeterHistory.clampedWindow(91) - 90) < 1e-9, "VU window clamps above 90")
+            expect(abs(MeterHistory.clampedWindow(0.5) - 1) < 1e-9, "VU window clamps below 1")
+        }
+
+        do {
+            let h = MeterHistory()
+            for i in 0..<30 {
+                h.appendLuma(t: Double(i), value: 0.05)
+                h.appendMic(t: Double(i), value: 0.02)
+            }
+            h.appendLuma(t: 29.0, value: 0.98)
+            h.appendLuma(t: 29.016, value: 0.90)
+            h.appendMic(t: 29.05, value: 0.80)
+            let n = 30
+            let luma = h.lumaColumns(now: 30.0, windowSeconds: 30, count: n)
+            let mic = h.micColumns(now: 30.0, windowSeconds: 30, count: n)
+            expect(luma.count == n && mic.count == n, "VU columns match count")
+            expect(luma[29] > 0.8, "1-frame luma flash peak-holds at the right (NOW)", String(format: "col29=%.3f", luma[29]))
+            expect(luma[0] < 0.2 && luma[10] < 0.2, "dark floor stays low on the left", String(format: "col0=%.3f col10=%.3f", luma[0], luma[10]))
+            expect(mic[29] > 0.5, "mic pulse peak-holds at the right (NOW)", String(format: "col29=%.3f", mic[29]))
+            expect(mic[0] < 0.1, "mic floor stays low on the left", String(format: "col0=%.3f", mic[0]))
+        }
+
+        do {
+            let h = MeterHistory()
+            h.appendLuma(t: 0.0, value: 0.9)
+            h.appendLuma(t: 100.0, value: 0.1)
+            let cols = h.lumaColumns(now: 100.0, windowSeconds: 30, count: 30)
+            expect(cols[0] < 0.2 && !cols.contains(where: { $0 > 0.5 }), "samples older than the window do not appear")
+            expect(cols[29] > 0.05 && cols[29] < 0.2, "newest column is the live 0.1 sample", String(format: "col29=%.3f", cols[29]))
+        }
+
+        do {
+            let h = MeterHistory()
+            h.appendLuma(t: 1, value: 0.8)
+            h.appendMic(t: 1, value: 0.7)
+            h.reset()
+            expect(h.lumaCount == 0 && h.micCount == 0 && h.lastTimestamp == 0, "RESET clears VU history")
+        }
+
+        do {
+            // Independent traces: a luma flash must not invent a mic pulse.
+            let h = MeterHistory()
+            h.appendLuma(t: 5.0, value: 0.95)
+            h.appendMic(t: 5.0, value: 0.02)
+            let luma = h.lumaColumns(now: 6.0, windowSeconds: 6, count: 6)
+            let mic = h.micColumns(now: 6.0, windowSeconds: 6, count: 6)
+            expect(luma[5] > 0.8, "luma trace shows the flash", String(format: "luma5=%.3f", luma[5]))
+            expect(mic[5] < 0.1, "mic trace stays independent of luma", String(format: "mic5=%.3f", mic[5]))
+        }
+
         if failed == 0 {
             print("ALL HARNESS TESTS PASSED")
         } else {

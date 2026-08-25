@@ -28,6 +28,7 @@
 		C78E614C1A469B402F906DE4 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC4BD9485B0F3D045E9440B2 /* SettingsView.swift */; };
 		CE86EB6F782867E41E0630E3 /* TestSignalBeep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 027A1D45B378CEF850064DC8 /* TestSignalBeep.swift */; };
 		F32D4C7FA31723D0BF0868EB /* MeasurementStatistics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F910531B6ADE12E8441CEE /* MeasurementStatistics.swift */; };
+		6C8F2B01D3E65F7A9B4D2C38 /* MeterHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B7E1A90C2D54E6F8A3C1B27 /* MeterHistory.swift */; };
 		F66F177D3B0DA32350A50056 /* AVSyncMeterApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFFBF5C04BFC0C34A8FFEAC6 /* AVSyncMeterApp.swift */; };
 /* End PBXBuildFile section */
 
@@ -57,6 +58,7 @@
 		8579D71EEE55B8290259BF11 /* AudioPulseDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPulseDetector.swift; sourceTree = "<group>"; };
 		9B0E0CD56CDB273FBBB0D3C2 /* VideoFlashDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFlashDetector.swift; sourceTree = "<group>"; };
 		A1F910531B6ADE12E8441CEE /* MeasurementStatistics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeasurementStatistics.swift; sourceTree = "<group>"; };
+		4B7E1A90C2D54E6F8A3C1B27 /* MeterHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeterHistory.swift; sourceTree = "<group>"; };
 		AA0A49C22356D201751D7ABA /* SyncTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncTypes.swift; sourceTree = "<group>"; };
 		BE381D263E81E858E3DDDF68 /* AVSyncMeter.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AVSyncMeter.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CAA2B2463B9F51ABF10892B5 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
@@ -128,6 +130,7 @@
 				179415E275572376CB646119 /* FrameRate.swift */,
 				EE65D68D1A919561E10CF863 /* MeasurementSession.swift */,
 				A1F910531B6ADE12E8441CEE /* MeasurementStatistics.swift */,
+				4B7E1A90C2D54E6F8A3C1B27 /* MeterHistory.swift */,
 				64DDAFCF915D9EBFCE638834 /* SyncMeasurementEngine.swift */,
 				AA0A49C22356D201751D7ABA /* SyncTypes.swift */,
 				027A1D45B378CEF850064DC8 /* TestSignalBeep.swift */,
@@ -262,6 +265,7 @@
 				0351A1BDC4A66C5460C3860F /* FrameRate.swift in Sources */,
 				84C034DA73E809D983268C8B /* MeasurementSession.swift in Sources */,
 				F32D4C7FA31723D0BF0868EB /* MeasurementStatistics.swift in Sources */,
+				6C8F2B01D3E65F7A9B4D2C38 /* MeterHistory.swift in Sources */,
 				05ADDC99D2A39F52128CDF6D /* MeasurementView.swift in Sources */,
 				C78E614C1A469B402F906DE4 /* SettingsView.swift in Sources */,
 				6811E7FC35E7BF5B7FFFB1E1 /* SyncMeasurementEngine.swift in Sources */,
@@ -318,7 +322,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 14;
+				CURRENT_PROJECT_VERSION = 15;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 98944N7X3Y;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -437,7 +441,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 14;
+				CURRENT_PROJECT_VERSION = 15;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 98944N7X3Y;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;

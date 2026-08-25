@@ -249,4 +249,28 @@ final class FrameRateTests: XCTestCase {
             XCTAssertGreaterThan(rate.framesPerSecond, 0)
         }
     }
+
+    func testMeterHistoryDefaultWindowAndClamp() {
+        XCTAssertEqual(MeterHistory.defaultWindowSeconds, 30, accuracy: 1e-9)
+        XCTAssertEqual(MeterHistory.clampedWindow(0), 1, accuracy: 1e-9)
+        XCTAssertEqual(MeterHistory.clampedWindow(91), 90, accuracy: 1e-9)
+    }
+
+    func testMeterHistoryPeakHoldsNewestAtRight() {
+        let h = MeterHistory()
+        for i in 0..<30 {
+            h.appendLuma(t: Double(i), value: 0.05)
+            h.appendMic(t: Double(i), value: 0.02)
+        }
+        h.appendLuma(t: 29.0, value: 0.98)
+        h.appendMic(t: 29.05, value: 0.80)
+        let luma = h.lumaColumns(now: 30, windowSeconds: 30, count: 30)
+        let mic = h.micColumns(now: 30, windowSeconds: 30, count: 30)
+        XCTAssertGreaterThan(luma[29], 0.8)
+        XCTAssertLessThan(luma[0], 0.2)
+        XCTAssertGreaterThan(mic[29], 0.5)
+        h.reset()
+        XCTAssertEqual(h.lumaCount, 0)
+        XCTAssertEqual(h.micCount, 0)
+    }
 }

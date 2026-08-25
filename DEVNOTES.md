@@ -28,6 +28,7 @@ swiftc -sdk "$(xcrun --sdk macosx --show-sdk-path)" \
   AVSyncMeter/Engine/FrameRate.swift \
   AVSyncMeter/Engine/SyncTypes.swift \
   AVSyncMeter/Engine/MeasurementStatistics.swift \
+  AVSyncMeter/Engine/MeterHistory.swift \
   AVSyncMeter/Engine/CaptureClock.swift \
   AVSyncMeter/Engine/VideoFlashDetector.swift \
   AVSyncMeter/Engine/AudioPulseDetector.swift \
@@ -143,3 +144,13 @@ Build 14: `playAndRecord` + **measurement** (not voiceChat), mixWithOthers + def
 Keeps AE off, CaptureClock freeze / relative A−V, pair ±400 ms, clock gate until settled, NTSC lock MISS honest, SIG PCM not a timestamp. Do not install. Do not launch. No TestFlight.
 
 HostHarness: silent-ch0 stereo recovers PA-scale RMS; int32 true scale; 89% PA-scale onsets; crushed 0.001 does not; smeared 15/80 ms pairs; speech still rejected; constant offset / 30 vs 29.97 still hold.
+
+
+## Build 15 (scrolling LUMA + MIC VU)
+
+Guy asked for a history strip so a pass is not just a live needle: did luma flashes and mic pulses actually happen. Measure screen keeps the live LUMA/MIC bars and adds two compact peak-held traces of the last 1–90 s (default 30 s, newest at the right). Duration lives in SET → Meters. RESET clears the strip. Display only — does not feed pairing.
+
+Keeps (14) mic path (loudest-channel mix, measurement session, 89% PA onset), stage-noise reject, honest NTSC lock, SIG PCM beep, CaptureClock freeze / relative A−V, pair ±400 ms, no AE lock. Do not install. Do not launch. No TestFlight.
+
+HostHarness: window clamp 1–90; 1-frame luma flash and mic pulse peak-hold at NOW (right); samples older than the window vanish; RESET clears; traces stay independent.
+
