@@ -197,10 +197,19 @@ final class AudioPulseDetector {
                     }
                 }
                 if zcr > 0.030 && c.sharpness < 0.45 {
-                    // Overlay beep: stamp this hop. Walking 30 ms back would land
-                    // on the syllable that is already over the onset threshold.
+                    // Overlay beep: walk back to the ZCR rise. Amplitude walk-back
+                    // would land on the syllable; stamping this hop is a buffer late.
+                    let searchStart = max(0, i - Int(configuration.lookbackSeconds * sampleRate))
+                    let onset = refineZCROnset(
+                        samples: combined,
+                        searchStart: searchStart,
+                        hopEnd: end,
+                        hop: hop,
+                        combinedStart: combinedStart,
+                        sampleRate: sampleRate
+                    )
                     candidate = Candidate(
-                        onsetSeconds: t,
+                        onsetSeconds: onset,
                         envelope: rms,
                         threshold: lastThreshold,
                         sharpness: max(sharp, 0.55),
@@ -222,7 +231,15 @@ final class AudioPulseDetector {
                 if trigger {
                     let onset: Double
                     if highTrigger && !rmsTrigger {
-                        onset = t
+                        let searchStart = max(0, i - Int(configuration.lookbackSeconds * sampleRate))
+                        onset = refineZCROnset(
+                            samples: combined,
+                            searchStart: searchStart,
+                            hopEnd: end,
+                            hop: hop,
+                            combinedStart: combinedStart,
+                            sampleRate: sampleRate
+                        )
                     } else {
                         let onsetThr = onsetThreshold()
                         let searchStart = max(0, i - Int(configuration.lookbackSeconds * sampleRate))
@@ -266,6 +283,24 @@ final class AudioPulseDetector {
         }
         tailRate = sampleRate
         return event
+    }
+
+
+    /// First hop where ZCR enters beep territory (~1 kHz). Amplitude walk-back
+    /// would land on already-loud speech.
+    private func refineZCROnset(samples: [Float], searchStart: Int, hopEnd: Int, hop: Int, combinedStart: Double, sampleRate: Double) -> Double {
+        let win = max(32, min(hop, 64))
+        var i = searchStart
+        while i < hopEnd {
+            let end = min(samples.count, min(hopEnd, i + win))
+            guard end > i + 4 else { break }
+            let z = Self.zeroCrossingRate(samples[i..<end])
+            if z > 0.030 {
+                return combinedStart + Double(i) / sampleRate
+            }
+            i += win
+        }
+        return combinedStart + Double(max(searchStart, hopEnd - win)) / sampleRate
     }
 
     /// Commit a short-then-quiet candidate as beep-like, or drop sustained voice.
