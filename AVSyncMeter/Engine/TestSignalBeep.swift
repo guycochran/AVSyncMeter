@@ -12,11 +12,16 @@ enum TestSignalBeep {
     static let sampleRate: Double = 44_100
     static let peakAmplitude: Float = 0.95
 
-    /// playAndRecord + mixWithOthers + defaultToSpeaker so the tone can play
-    /// even when AVCaptureSession owns audio. Playback is the fallback.
+    /// playAndRecord + measurement + mixWithOthers + defaultToSpeaker so the
+    /// tone can play while capture owns the mic, without voice-chat AEC.
+    /// Same policy as CaptureManager.activateMeasurementAudioSession.
     static let sessionCategory = "playAndRecord"
+    static let sessionMode = "measurement"
     static let sessionMixWithOthers = true
     static let sessionDefaultToSpeaker = true
+    static let sessionAllowBluetooth = false
+    static let sessionPrefersEchoCancelledInput = false
+    static let sessionPreferredMicrophoneMode = "wideSpectrum"
     static let usedAsMeasurementTimestamp = false
 
     static var sampleCount: Int {

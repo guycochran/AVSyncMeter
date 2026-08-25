@@ -151,7 +151,9 @@ final class AudioPulseDetector {
             }
 
             if awaitingRearm {
-                let rearmQuiet = rms < max(lastThreshold * configuration.rearmQuietFraction, baseline * 3, 0.02)
+                // No hard 0.02 floor: after DSP is off a loud room sits above 0.02
+                // and would never re-arm (pairing dies after the first beep).
+                let rearmQuiet = rms < max(lastThreshold * configuration.rearmQuietFraction, baseline * 3)
                 previousEnvelope = rms
                 previousHighBand = highBand; previousZCR = zcr
                 if rearmQuiet {
@@ -359,7 +361,7 @@ final class AudioPulseDetector {
             return nil
         }
         if awaitingRearm {
-            let rearmQuiet = envelope < max(lastThreshold * configuration.rearmQuietFraction, baseline * 3, 0.02)
+            let rearmQuiet = envelope < max(lastThreshold * configuration.rearmQuietFraction, baseline * 3)
             previousEnvelope = envelope
             if rearmQuiet { awaitingRearm = false }
             return nil
@@ -387,12 +389,12 @@ final class AudioPulseDetector {
 
     func effectiveThreshold(relativeToBaseline base: Double) -> Double {
         if let manual = configuration.manualThreshold { return max(0.002, manual) }
-        // Do not clamp to 0.05 — that floor ate the downstairs PA beep
-        // (MIC sliver, smeared house 1 kHz). Isolated pulses still have to
-        // go quiet; sustained speech is dropped by duration, not amplitude.
-        let floor = max(0.008, configuration.absoluteTriggerFloor - configuration.sensitivity * 0.008)
+        // 89% must hear a distant smeared PA (env 0.005–0.03). A 0.008 clamp
+        // with live env 0.001 is the upstairs miss (thr 0.009, 26/26 reject).
+        // Crushed 0.001 noise still must not trigger (fromNoise ≥ ~0.005).
+        let floor = max(0.0025, configuration.absoluteTriggerFloor - configuration.sensitivity * 0.015)
         let noiseFloor = max(base, 0.0008)
-        let fromNoise = noiseFloor * max(6.0, configuration.triggerNoiseMultiple * 0.5)
+        let fromNoise = min(0.10, noiseFloor * max(5.0, configuration.triggerNoiseMultiple * 0.45))
         return max(floor, fromNoise)
     }
 
@@ -489,60 +491,216 @@ final class AudioPulseDetector {
     }
 
     static func parseMono(_ sampleBuffer: CMSampleBuffer) -> ParsedBuffer? {
+        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        let bufferStart = CMTimeGetSeconds(pts)
+        guard bufferStart.isFinite else { return nil }
+
+        let format = CMSampleBufferGetFormatDescription(sampleBuffer)
+        let asbd = format.flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee }
+        let sampleRate = asbd?.mSampleRate ?? 48_000
+        let channels = max(1, Int(asbd?.mChannelsPerFrame ?? 1))
+        let flags = asbd?.mFormatFlags ?? 0
+        let isFloat = flags & kAudioFormatFlagIsFloat != 0
+        let isNonInterleaved = flags & kAudioFormatFlagIsNonInterleaved != 0
+        var bits = Int(asbd?.mBitsPerChannel ?? 0)
+        if bits == 0 {
+            let bpf = Int(asbd?.mBytesPerFrame ?? 0)
+            if bpf > 0 {
+                bits = isNonInterleaved ? bpf * 8 : max(16, (bpf / channels) * 8)
+            } else {
+                bits = 16
+            }
+        }
+        if bits == 24 { bits = 32 }
+
+        if let mixed = parseAudioBufferList(sampleBuffer, bits: bits, isFloat: isFloat), !mixed.isEmpty {
+            return ParsedBuffer(samples: mixed, startSeconds: bufferStart, sampleRate: sampleRate)
+        }
+
         guard let block = sampleBuffer.dataBuffer else { return nil }
         var length = 0
         var dataPointer: UnsafeMutablePointer<Int8>?
         guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &dataPointer) == noErr,
               let dataPointer, length > 0 else { return nil }
-
-        let format = CMSampleBufferGetFormatDescription(sampleBuffer)
-        let asbd = format.flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee }
-        let sampleRate = asbd?.mSampleRate ?? 48_000
-        let channels = Int(asbd?.mChannelsPerFrame ?? 1)
-        let bits = Int(asbd?.mBitsPerChannel ?? 16)
-        let isFloat = (asbd?.mFormatFlags ?? 0) & kAudioFormatFlagIsFloat != 0
-        let isNonInterleaved = (asbd?.mFormatFlags ?? 0) & kAudioFormatFlagIsNonInterleaved != 0
-        let bytesPerSample = max(1, bits / 8)
-        let frameCount: Int
-        if isNonInterleaved {
-            frameCount = length / bytesPerSample
-        } else {
-            frameCount = length / max(1, bytesPerSample * max(channels, 1))
-        }
-
-        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        let bufferStart = CMTimeGetSeconds(pts)
-        guard bufferStart.isFinite, frameCount > 0 else { return nil }
-
-        var samples = [Float](repeating: 0, count: frameCount)
-        if isFloat && bits == 32 {
-            dataPointer.withMemoryRebound(to: Float.self, capacity: frameCount * max(channels, 1)) { src in
-                if channels <= 1 || isNonInterleaved {
-                    samples.withUnsafeMutableBufferPointer { dst in
-                        dst.baseAddress!.update(from: src, count: frameCount)
-                    }
-                } else {
-                    for i in 0..<frameCount {
-                        var acc: Float = 0
-                        for c in 0..<channels { acc += src[i * channels + c] }
-                        samples[i] = acc / Float(channels)
-                    }
-                }
-            }
-        } else {
-            dataPointer.withMemoryRebound(to: Int16.self, capacity: frameCount * max(channels, 1)) { src in
-                let scale: Float = 1.0 / 32768.0
-                if channels <= 1 || isNonInterleaved {
-                    for i in 0..<frameCount { samples[i] = Float(src[i]) * scale }
-                } else {
-                    for i in 0..<frameCount {
-                        var acc: Float = 0
-                        for c in 0..<channels { acc += Float(src[i * channels + c]) }
-                        samples[i] = (acc / Float(channels)) * scale
-                    }
-                }
-            }
-        }
+        let samples = decodeAndMixMono(
+            bytes: UnsafeRawPointer(dataPointer),
+            byteCount: length,
+            channels: channels,
+            bitsPerChannel: bits,
+            isFloat: isFloat,
+            isNonInterleaved: isNonInterleaved
+        )
+        guard !samples.isEmpty else { return nil }
         return ParsedBuffer(samples: samples, startSeconds: bufferStart, sampleRate: sampleRate)
+    }
+
+    /// AudioBufferList so non-interleaved dual-mic is not first-channel-only.
+    private static func parseAudioBufferList(_ sampleBuffer: CMSampleBuffer, bits: Int, isFloat: Bool) -> [Float]? {
+        let maxBuffers = 8
+        let byteSize = AudioBufferList.sizeInBytes(maximumBuffers: maxBuffers)
+        let raw = UnsafeMutableRawPointer.allocate(byteCount: byteSize, alignment: MemoryLayout<AudioBufferList>.alignment)
+        defer { raw.deallocate() }
+        raw.initializeMemory(as: UInt8.self, repeating: 0, count: byteSize)
+        let listPtr = raw.bindMemory(to: AudioBufferList.self, capacity: 1)
+        listPtr.pointee.mNumberBuffers = UInt32(maxBuffers)
+
+        var blockBuffer: CMBlockBuffer?
+        let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+            sampleBuffer,
+            bufferListSizeNeededOut: nil,
+            bufferListOut: listPtr,
+            bufferListSize: byteSize,
+            blockBufferAllocator: nil,
+            blockBufferMemoryAllocator: nil,
+            flags: UInt32(kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment),
+            blockBufferOut: &blockBuffer
+        )
+        guard status == noErr, blockBuffer != nil else { return nil }
+
+        let abl = UnsafeMutableAudioBufferListPointer(listPtr)
+        var planes: [[Float]] = []
+        for buf in abl {
+            guard let data = buf.mData, buf.mDataByteSize > 0 else { continue }
+            let chInBuf = max(1, Int(buf.mNumberChannels))
+            let plane = decodeAndMixMono(
+                bytes: data,
+                byteCount: Int(buf.mDataByteSize),
+                channels: chInBuf,
+                bitsPerChannel: bits,
+                isFloat: isFloat,
+                isNonInterleaved: false
+            )
+            if !plane.isEmpty { planes.append(plane) }
+        }
+        guard !planes.isEmpty else { return nil }
+        return mixLoudestChannel(planes)
+    }
+
+    /// Pick the plane with the most energy. Averaging a silent (or voice-processed)
+    /// channel with the PA channel, or taking only channel 0 of non-interleaved
+    /// dual-mic, is how a loud house reads as env 0.001.
+    static func mixLoudestChannel(_ planes: [[Float]]) -> [Float] {
+        guard let first = planes.first else { return [] }
+        if planes.count == 1 { return first }
+        let n = planes.map(\.count).min() ?? 0
+        guard n > 0 else { return [] }
+        var bestIdx = 0
+        var bestEnergy: Double = -1
+        for (idx, plane) in planes.enumerated() {
+            var e: Double = 0
+            let m = min(n, plane.count)
+            var i = 0
+            while i < m {
+                let x = Double(plane[i])
+                e += x * x
+                i += 1
+            }
+            if e > bestEnergy {
+                bestEnergy = e
+                bestIdx = idx
+            }
+        }
+        let best = planes[bestIdx]
+        return best.count == n ? best : Array(best.prefix(n))
+    }
+
+    /// Testable PCM → mono. HostHarness uses this to catch silent-ch0 / int32-as-int16.
+    static func decodeAndMixMono(
+        bytes: UnsafeRawPointer,
+        byteCount: Int,
+        channels: Int,
+        bitsPerChannel: Int,
+        isFloat: Bool,
+        isNonInterleaved: Bool
+    ) -> [Float] {
+        let ch = max(1, channels)
+        var bits = bitsPerChannel
+        if bits == 24 { bits = 32 }
+        let bytesPerSample = bits / 8
+        guard bytesPerSample == 2 || bytesPerSample == 4, byteCount >= bytesPerSample else { return [] }
+
+        var planes: [[Float]] = []
+        if isNonInterleaved {
+            let planeBytes = byteCount / ch
+            let frames = planeBytes / bytesPerSample
+            guard frames > 0 else { return [] }
+            for c in 0..<ch {
+                let off = c * planeBytes
+                planes.append(decodeContiguous(bytes: bytes + off, frames: frames, bytesPerSample: bytesPerSample, isFloat: isFloat))
+            }
+        } else if ch == 1 {
+            let frames = byteCount / bytesPerSample
+            planes.append(decodeContiguous(bytes: bytes, frames: frames, bytesPerSample: bytesPerSample, isFloat: isFloat))
+        } else {
+            let frames = byteCount / (bytesPerSample * ch)
+            guard frames > 0 else { return [] }
+            for c in 0..<ch {
+                planes.append(decodeStrided(
+                    bytes: bytes,
+                    frames: frames,
+                    bytesPerSample: bytesPerSample,
+                    channel: c,
+                    channels: ch,
+                    isFloat: isFloat
+                ))
+            }
+        }
+        return mixLoudestChannel(planes)
+    }
+
+    static func decodeAndMixMono(bytes: [UInt8], channels: Int, bitsPerChannel: Int, isFloat: Bool, isNonInterleaved: Bool) -> [Float] {
+        guard !bytes.isEmpty else { return [] }
+        return bytes.withUnsafeBytes { raw in
+            decodeAndMixMono(
+                bytes: raw.baseAddress!,
+                byteCount: bytes.count,
+                channels: channels,
+                bitsPerChannel: bitsPerChannel,
+                isFloat: isFloat,
+                isNonInterleaved: isNonInterleaved
+            )
+        }
+    }
+
+    private static func decodeContiguous(bytes: UnsafeRawPointer, frames: Int, bytesPerSample: Int, isFloat: Bool) -> [Float] {
+        guard frames > 0 else { return [] }
+        var out = [Float](repeating: 0, count: frames)
+        if isFloat && bytesPerSample == 4 {
+            let src = bytes.bindMemory(to: Float.self, capacity: frames)
+            for i in 0..<frames {
+                let x = src[i]
+                out[i] = x.isFinite ? x : 0
+            }
+        } else if bytesPerSample == 4 {
+            let src = bytes.bindMemory(to: Int32.self, capacity: frames)
+            let scale: Float = 1.0 / 2_147_483_648.0
+            for i in 0..<frames { out[i] = Float(src[i]) * scale }
+        } else {
+            let src = bytes.bindMemory(to: Int16.self, capacity: frames)
+            let scale: Float = 1.0 / 32_768.0
+            for i in 0..<frames { out[i] = Float(src[i]) * scale }
+        }
+        return out
+    }
+
+    private static func decodeStrided(bytes: UnsafeRawPointer, frames: Int, bytesPerSample: Int, channel: Int, channels: Int, isFloat: Bool) -> [Float] {
+        guard frames > 0 else { return [] }
+        var out = [Float](repeating: 0, count: frames)
+        if isFloat && bytesPerSample == 4 {
+            let src = bytes.bindMemory(to: Float.self, capacity: frames * channels)
+            for i in 0..<frames {
+                let x = src[i * channels + channel]
+                out[i] = x.isFinite ? x : 0
+            }
+        } else if bytesPerSample == 4 {
+            let src = bytes.bindMemory(to: Int32.self, capacity: frames * channels)
+            let scale: Float = 1.0 / 2_147_483_648.0
+            for i in 0..<frames { out[i] = Float(src[i * channels + channel]) * scale }
+        } else {
+            let src = bytes.bindMemory(to: Int16.self, capacity: frames * channels)
+            let scale: Float = 1.0 / 32_768.0
+            for i in 0..<frames { out[i] = Float(src[i * channels + channel]) * scale }
+        }
+        return out
     }
 }

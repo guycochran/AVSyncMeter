@@ -120,20 +120,11 @@ final class TestSignalBeepPlayer: ObservableObject {
         player?.currentTime = 0
     }
 
-    /// playAndRecord + mixWithOthers + defaultToSpeaker so SIG can beep while
-    /// AVCaptureSession owns the mic. Fallback: playback + mixWithOthers.
+    /// Same measurement session as capture. mode.default + defaultToSpeaker
+    /// is speakerphone AEC and was crushing the house PA to env 0.001.
     private func activateSession() {
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setCategory(
-                .playAndRecord,
-                mode: .default,
-                options: [.mixWithOthers, .defaultToSpeaker]
-            )
-            try session.setActive(true)
-        } catch {
-            try? session.setCategory(.playback, options: [.mixWithOthers])
-            try? session.setActive(true)
-        }
+        if CaptureManager.activateMeasurementAudioSession() { return }
+        try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
+        try? AVAudioSession.sharedInstance().setActive(true)
     }
 }

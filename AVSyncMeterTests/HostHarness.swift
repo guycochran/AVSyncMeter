@@ -943,6 +943,11 @@ struct HostHarness {
             expect(wav.count > 44 && riff == "RIFF" && wave == "WAVE", "beep WAV exists", "\(riff)\(wave) bytes=\(wav.count)")
             expect(TestSignalBeep.sessionMixWithOthers && TestSignalBeep.sessionDefaultToSpeaker, "SIG session mixes with capture and defaults to speaker")
             expect(TestSignalBeep.sessionCategory == "playAndRecord" || TestSignalBeep.sessionCategory == "playback", "SIG category plays with ringer off")
+            expect(TestSignalBeep.sessionMode == "measurement", "SIG/capture mode is measurement not voiceChat")
+            expect(TestSignalBeep.sessionMode != "voiceChat" && TestSignalBeep.sessionMode != "videoChat", "mic path is not voice-chat DSP")
+            expect(!TestSignalBeep.sessionAllowBluetooth, "no HFP Bluetooth (AEC + 8 kHz)")
+            expect(!TestSignalBeep.sessionPrefersEchoCancelledInput, "echo cancellation is off")
+            expect(TestSignalBeep.sessionPreferredMicrophoneMode == "wideSpectrum", "preferred mic mode is wide spectrum")
             expect(!TestSignalBeep.usedAsMeasurementTimestamp, "SIG beep is not a measurement timestamp")
         }
 
@@ -1337,6 +1342,180 @@ struct HostHarness {
                 expect(s != nil && abs(s!.offsetMilliseconds - 80) < 15, "voice 50/150/250 does not steal; smeared beep +80 still pairs", s.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
             }
         }
+
+
+        // MARK: - Build 14: mic path — loud PA must onset at 89%, not env 0.001
+
+        do {
+            // Non-interleaved stereo: silent/processed ch0 at 0.001, PA beep on ch1.
+            // Old parse copied channel 0 (env 0.001). Loudest-channel mix must keep the PA.
+            let n = 4096
+            let ch0 = [Float](repeating: 0.001, count: n)
+            var ch1 = [Float](repeating: 0.001, count: n)
+            for i in 512..<1400 {
+                let t = Double(i) / 48_000.0
+                ch1[i] = 0.22 * Float(sin(2 * Double.pi * 1_000 * t))
+            }
+            func pack(_ xs: [Float]) -> [UInt8] {
+                var b: [UInt8] = []
+                b.reserveCapacity(xs.count * 4)
+                for x in xs {
+                    var f = x
+                    withUnsafeBytes(of: &f) { b.append(contentsOf: $0) }
+                }
+                return b
+            }
+            let bytes = pack(ch0) + pack(ch1)
+            let mixed = AudioPulseDetector.decodeAndMixMono(
+                bytes: bytes, channels: 2, bitsPerChannel: 32, isFloat: true, isNonInterleaved: true
+            )
+            let peak = mixed.dropFirst(512).prefix(800).map { abs($0) }.max() ?? 0
+            let firstPlanePeak = ch0.map { abs($0) }.max() ?? 0
+            expect(mixed.count == n, "stereo silent-ch0 mix keeps frame count", "n=\(mixed.count)")
+            expect(Double(firstPlanePeak) < 0.002, "channel 0 is the crushed 0.001 plane")
+            expect(Double(peak) > 0.15, "loudest-channel mix recovers PA-scale peak, not env 0.001", String(format: "peak %.4f", Double(peak)))
+            let slice = mixed[512..<1400]
+            let rms = AudioPulseDetector.rms(slice)
+            expect(rms > 0.10, "mixed RMS is PA-scale not 0.001", String(format: "rms %.4f", rms))
+        }
+
+        do {
+            // Interleaved int16: silent L, loud R. Must not average down to a sliver.
+            let n = 2048
+            var bytes = [UInt8](repeating: 0, count: n * 4)
+            for i in 400..<900 {
+                let t = Double(i) / 48_000.0
+                let s = Int16((0.40 * sin(2 * Double.pi * 1_000 * t) * 32767.0).rounded())
+                let le = s.littleEndian
+                bytes[i * 4 + 2] = UInt8(truncatingIfNeeded: le)
+                bytes[i * 4 + 3] = UInt8(truncatingIfNeeded: le >> 8)
+            }
+            let mixed = AudioPulseDetector.decodeAndMixMono(
+                bytes: bytes, channels: 2, bitsPerChannel: 16, isFloat: false, isNonInterleaved: false
+            )
+            let rms = AudioPulseDetector.rms(mixed[400..<900])
+            expect(rms > 0.20, "interleaved silent-L/loud-R mix is PA-scale", String(format: "rms %.4f", rms))
+        }
+
+        do {
+            // Int32 full-scale 0.25 sine must decode as ~0.25, not as int16-low-half ~0.001.
+            let n = 1024
+            var bytes = [UInt8](repeating: 0, count: n * 4)
+            for i in 0..<n {
+                let t = Double(i) / 48_000.0
+                let v = Int32((0.25 * sin(2 * Double.pi * 1_000 * t) * 2_147_483_647.0).rounded())
+                let le = v.littleEndian
+                bytes[i * 4 + 0] = UInt8(truncatingIfNeeded: le)
+                bytes[i * 4 + 1] = UInt8(truncatingIfNeeded: le >> 8)
+                bytes[i * 4 + 2] = UInt8(truncatingIfNeeded: le >> 16)
+                bytes[i * 4 + 3] = UInt8(truncatingIfNeeded: le >> 24)
+            }
+            let mixed = AudioPulseDetector.decodeAndMixMono(
+                bytes: bytes, channels: 1, bitsPerChannel: 32, isFloat: false, isNonInterleaved: false
+            )
+            let rms = AudioPulseDetector.rms(mixed[...])
+            expect(rms > 0.10 && rms < 0.30, "int32 PCM decodes at true scale not 0.001", String(format: "rms %.4f", rms))
+        }
+
+        func feedPulse(_ d: AudioPulseDetector, from t0: Double, until t1: Double, rate: Double = 48_000, buf: Int = 1024, paint: (Double) -> Float) -> [AudioPulseEvent] {
+            var hits: [AudioPulseEvent] = []
+            var t = t0
+            while t < t1 {
+                var samples = [Float](repeating: 0, count: buf)
+                for i in 0..<buf { samples[i] = paint(t + Double(i) / rate) }
+                if let ev = d.processMonoSamples(samples, bufferStartSeconds: t, sampleRate: rate) {
+                    hits.append(ev)
+                }
+                t += Double(buf) / rate
+            }
+            return hits
+        }
+
+        do {
+            // 89% sensitivity: PA-scale buffers that used to look like env 0.001 still onset.
+            var cfg = AudioPulseDetector.Configuration()
+            cfg.sensitivity = 0.89
+            let d = AudioPulseDetector(configuration: cfg)
+            _ = feedPulse(d, from: 0.0, until: 0.8, paint: { _ in 0.001 })
+            let thr = d.effectiveThreshold(relativeToBaseline: d.baseline)
+            expect(thr < 0.008 && thr > 0.002, "89% threshold sits below a distant PA, above crushed 0.001", String(format: "thr %.4f env %.4f", thr, d.lastEnvelope))
+            func smear(_ t: Double, start: Double, dur: Double, amp: Float) -> Float {
+                guard t >= start && t < start + dur else { return 0 }
+                let local = t - start
+                let fade = min(0.006, dur / 4)
+                let env: Float
+                if local < fade { env = Float(local / fade) }
+                else if local > dur - fade { env = Float(max(0, (dur - local) / fade)) }
+                else { env = 1 }
+                return env * amp * Float(sin(2 * Double.pi * 1_000 * t))
+            }
+            let hits = feedPulse(d, from: 0.8, until: 3.4, paint: { t in
+                0.001 + smear(t, start: 1.0, dur: 0.050, amp: 0.18) + smear(t, start: 2.0, dur: 0.050, amp: 0.18)
+            })
+            expect(hits.count == 2, "89%: loud PA-scale 50 ms beeps onset (not env 0.001 reject)", "n=\(hits.count) times=\(hits.map { String(format: "%.3f env=%.3f", $0.timestampSeconds, $0.envelope) })")
+            if hits.count >= 1 {
+                expect(hits[0].envelope > 0.05, "onset envelope is PA-scale not 0.001", String(format: "env %.4f", hits[0].envelope))
+                expect(hits[0].isBeepLike, "PA-scale isolated pulse is beep-like")
+            }
+        }
+
+        do {
+            // Crushed 0.001 live env at 89% must still NOT fire (noise floor, not a beep).
+            var cfg = AudioPulseDetector.Configuration()
+            cfg.sensitivity = 0.89
+            let d = AudioPulseDetector(configuration: cfg)
+            let hits = feedPulse(d, from: 0.0, until: 2.5, paint: { _ in 0.001 })
+            expect(hits.isEmpty, "89%: constant env 0.001 (crushed mic) does not onset", "n=\(hits.count)")
+        }
+
+        do {
+            // Smeared 15–80 ms 1 Hz PA still pairs with flashes at 89%.
+            var cfg = AudioPulseDetector.Configuration()
+            cfg.sensitivity = 0.89
+            let d = AudioPulseDetector(configuration: cfg)
+            _ = feedPulse(d, from: 0.0, until: 0.8, paint: { _ in 0.001 })
+            func smear(_ t: Double, start: Double, dur: Double, amp: Float) -> Float {
+                guard t >= start && t < start + dur else { return 0 }
+                let local = t - start
+                let fade = min(0.005, dur / 4)
+                let env: Float
+                if local < fade { env = Float(local / fade) }
+                else if local > dur - fade { env = Float(max(0, (dur - local) / fade)) }
+                else { env = 1 }
+                return env * amp * Float(sin(2 * Double.pi * 1_000 * t))
+            }
+            let hits = feedPulse(d, from: 0.8, until: 3.5, paint: { t in
+                0.001 + smear(t, start: 1.0, dur: 0.015, amp: 0.16) + smear(t, start: 2.0, dur: 0.080, amp: 0.14)
+            })
+            expect(hits.count == 2, "smeared 15/80 ms 1 Hz PA still onsets at 89%", "n=\(hits.count) times=\(hits.map { String(format: "%.3f dur=%.3f", $0.timestampSeconds, $0.durationSeconds) })")
+            let e = SyncMeasurementEngine()
+            if hits.count >= 2 {
+                expect(hits.allSatisfy(\.isBeepLike), "15–80 ms isolated PA pulses are beep-like")
+                _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 1.0, luminance: 0.8, threshold: 0.1))
+                let a = e.ingestPulse(hits[0])
+                _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 2.0, luminance: 0.8, threshold: 0.1))
+                let b = e.ingestPulse(hits[1])
+                expect(a != nil && abs(a!.offsetMilliseconds) < 20, "15 ms smeared beep pairs with flash", a.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
+                expect(b != nil && abs(b!.offsetMilliseconds) < 20, "80 ms smeared beep pairs with flash", b.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
+            }
+        }
+
+        do {
+            // Sustained speech still rejected at 89%.
+            var cfg = AudioPulseDetector.Configuration()
+            cfg.sensitivity = 0.89
+            let d = AudioPulseDetector(configuration: cfg)
+            _ = feedPulse(d, from: 0.0, until: 0.8, paint: { _ in 0.001 })
+            func speech(_ t: Double) -> Float {
+                if t >= 1.0 && t < 1.45 {
+                    return 0.35 * Float(sin(2 * Double.pi * 180 * t) + 0.3 * sin(2 * Double.pi * 360 * t))
+                }
+                return 0.001
+            }
+            let hits = feedPulse(d, from: 0.8, until: 2.0, paint: speech)
+            expect(hits.isEmpty, "89%: sustained speech still rejected", "n=\(hits.count) times=\(hits.map { String(format: "%.3f", $0.timestampSeconds) })")
+        }
+
 
         if failed == 0 {
             print("ALL HARNESS TESTS PASSED")

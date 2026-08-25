@@ -74,6 +74,7 @@ final class CaptureManager: NSObject, ObservableObject {
                     Self.lockFrameRateIfPossible(camera, program: self.programFrameRate)
                     self.session.commitConfiguration()
                 }
+                Self.activateMeasurementAudioSession()
                 if !self.session.isRunning {
                     self.session.startRunning()
                 }
@@ -106,6 +107,9 @@ final class CaptureManager: NSObject, ObservableObject {
     private func configureIfNeeded() throws {
         if configured { return }
         session.beginConfiguration()
+        // Own the audio session so AVCapture cannot switch us to voice-chat DSP.
+        session.automaticallyConfiguresApplicationAudioSession = false
+        Self.activateMeasurementAudioSession()
         // inputPriority so NTSC 1001 lock can pick a format; .high was snapping to 1/30.
         session.sessionPreset = .inputPriority
 
@@ -301,6 +305,29 @@ final class CaptureManager: NSObject, ObservableObject {
             }
         } catch {
             // Focus lock is best-effort; measurement still runs.
+        }
+    }
+
+    /// playAndRecord + measurement (not voiceChat / default speakerphone) so a
+    /// house PA is not echo-cancelled or voice-isolated down to env 0.001.
+    /// mixWithOthers + defaultToSpeaker so SIG can still beep. No allowBluetooth
+    /// (HFP enables AEC and crushes bandwidth). AEC off. preferredMicrophoneMode is read-only on this SDK; measurement mode is the enforceable DSP off-switch.
+    @discardableResult
+    static func activateMeasurementAudioSession() -> Bool {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(
+                .playAndRecord,
+                mode: .measurement,
+                options: [.mixWithOthers, .defaultToSpeaker]
+            )
+            if #available(iOS 18.2, *) {
+                try? session.setPrefersEchoCancelledInput(false)
+            }
+            try session.setActive(true)
+            return true
+        } catch {
+            return false
         }
     }
 

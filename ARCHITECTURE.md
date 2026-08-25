@@ -28,7 +28,7 @@ AVCaptureSession (one session)
 - One `AVCaptureSession`.
 - Back wide camera + built-in microphone.
 - Video: bi-planar full-range YUV (`420f`). Luma is read from plane 0. Capture frame duration follows the program picker: 60_000/1001 (or 30_000/1001) when 29.97/59.94 is selected, integer 1/60 or 1/30 when 30/60 is selected. Integer 30.000 vs a 29.97 file is 1000 ppm and last-25 climbs ~1 ms/beep even if both stream clocks are true host — (9) relative A−V stays 1.0 and will not flatten that.
-- Audio: `AVCaptureAudioDataOutput` as 48 kHz mono float32.
+- Audio: `AVCaptureAudioDataOutput` (whatever Linear PCM iOS delivers). Session is `playAndRecord` + `measurement` (not voiceChat), mixWithOthers + defaultToSpeaker, no Bluetooth HFP, echo cancellation off, preferred mic wideSpectrum. Parse uses AudioBufferList, int16/int32/float32, loudest-channel mix so a processed/silent plane cannot meter 0.001 while the PA is on the other channel.
 - **Timing rule:** `CMSampleBufferGetPresentationTimeStamp` (or output PTS), converted with `CMSyncConvertTime` from `session.masterClock` onto `CMClockGetHostTimeClock()`. That session-mapped PTS *is* unified time. `CaptureClock` may rate-map a synthetic PTS vs a stable host (tests / 1000 ppm), but the live path never slope-fits mapped PTS against callback `hostNowSeconds()`. No `Date()`, no UI timestamps, no independent timers for the offset.
 - Focus may lock while measuring. **Do not lock auto-exposure** — locking AE on a dark monitor or mid-flash flattens luma so the white flash never crosses the detector threshold. 400 ms video holdoff swallows AE-recovery double-pumps. AWB stays continuous. HDR and low-light boost stay off.
 - Observed capture fps is estimated from a short run of video PTS deltas (display only).
@@ -63,7 +63,7 @@ No computer vision. Each frame:
 
 ## Audio pulse (`AudioPulseDetector`)
 
-1. Convert the buffer to mono float.
+1. Convert the buffer to mono float (AudioBufferList, loudest channel, int16/int32/float32).
 2. Scan short hops for RMS vs a noise floor that updates **only when quiet**.
 3. A high trigger (hysteresis) decides that a beep happened.
 4. Onset is walked back to the first sample over a **low** noise-floor multiple, so AGC cannot slide the stamp 1 ms/s.
@@ -105,7 +105,7 @@ SwiftUI (`MeasurementView`) is dark, low-decoration, venue-friendly: preview + t
 
 `AVSyncMeterTests/SyncMeasurementEngineTests.swift` and `WalkAndClockTests.swift` are the XCTest target. `HostHarness.swift` + `SyntheticRig.swift` is a macOS `@main` runner used when `xcodebuild test` cannot attach to the installed iOS 27 simulator runtime.
 
-The harness requires a constant synthetic offset to stay flat, a +164 ms audio step to move the median by ~164 ms, an already-mapped 30.000 vs 29.97 (1000 ppm) pass whose reported offsets stay flat, and a true-host integer-30 capture vs 29.97-file events pass that walks ~1 ms/beep until capture is locked to 30_000/1001 or 60_000/1001 (then the same constant-delay pass is flat). Integer 30 vs 29.97 content is not visible to relative A−V on unified buffers. Build 11: ±400 ms pair window still rejects 220–350 ms replicas vs the next flash; generated beep PCM exists; WALK is not green on huge SPAN; capture footer distinguishes 29.97 NTSC from integer 30.00. Build 12: voice-like onsets 50/150/250 ms plus a real beep at +80 pair the beep; chatter between 1 Hz flashes does not create pairs; moving luma does not FLASH. Build 13: picker 29.97 selects 1001-family from probed CMTime durations (never silent 1/30; footer says NTSC lock MISS if it cannot); smeared 40–60 ms 1 Hz PA pulse still onsets; 20–40 ms beep at +80 still wins over voice 50/150/250.
+The harness requires a constant synthetic offset to stay flat, a +164 ms audio step to move the median by ~164 ms, an already-mapped 30.000 vs 29.97 (1000 ppm) pass whose reported offsets stay flat, and a true-host integer-30 capture vs 29.97-file events pass that walks ~1 ms/beep until capture is locked to 30_000/1001 or 60_000/1001 (then the same constant-delay pass is flat). Integer 30 vs 29.97 content is not visible to relative A−V on unified buffers. Build 11: ±400 ms pair window still rejects 220–350 ms replicas vs the next flash; generated beep PCM exists; WALK is not green on huge SPAN; capture footer distinguishes 29.97 NTSC from integer 30.00. Build 12: voice-like onsets 50/150/250 ms plus a real beep at +80 pair the beep; chatter between 1 Hz flashes does not create pairs; moving luma does not FLASH. Build 13: picker 29.97 selects 1001-family from probed CMTime durations (never silent 1/30; footer says NTSC lock MISS if it cannot); smeared 40–60 ms 1 Hz PA pulse still onsets; 20–40 ms beep at +80 still wins over voice 50/150/250. Build 14: silent-ch0 / int32-as-int16 PA-scale buffers still onset at 89%; crushed env 0.001 does not; smeared 15–80 ms still pairs; speech still rejected; measurement-mode session policy (not voiceChat).
 
 ## File map
 

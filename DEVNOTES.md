@@ -131,3 +131,15 @@ HostHarness: picker 29.97 selects 1001 family; only-1/30 format does not silentl
 Leftover risk: some iPhone formats still snap every 1001 CMTime to 1/30 or 1/60 — footer will say MISS honestly. A short non-beep click ~30 ms before the house beep can still 400 ms-mask it. SIG may still duck under capture.
 
 No install from this tree until Guy is at the Mac. No TestFlight. No launch.
+
+## Build 14 (mic path: loud PA must onset at 89%)
+
+On-device 0.1.2 (13) upstairs ~16:16 PT: room loud, sensitivity 89%, DIAG live audio env 0.001 vs threshold 0.009, valid 0 / rejected 26, MIC sliver, audio slope n=1544 (buffers arriving). FLASH 1 Hz luma 0.98. SIG next to a Mac speaker DID produce AUDIOPULSE (env 0.005–0.009 vs thr 0.011). A loud house PA must not read as env 0.001.
+
+Cause in code: CaptureManager never configured AVAudioSession (AVCapture auto-config + SIG `playAndRecord` + `mode.default` + `defaultToSpeaker` is speakerphone AEC / voice processing). `parseMono` took channel 0 of non-interleaved (or averaged) so a processed/silent plane meters 0.001. Detector floor at 89% sat at 0.009. Rearm had a hard 0.02 quiet floor that would freeze pairing in a truly loud room once DSP is off.
+
+Build 14: `playAndRecord` + **measurement** (not voiceChat), mixWithOthers + defaultToSpeaker, no allowBluetooth, echo cancellation off, preferred mic **wideSpectrum**. Capture owns the session (`automaticallyConfiguresApplicationAudioSession = false`). SIG uses the same activate. Parse via AudioBufferList, int16/int32/float32, **loudest-channel mix**. 89% floor ~0.003 so a distant smeared PA still triggers; constant 0.001 still does not. Rearm quiet is relative, not 0.02 hard.
+
+Keeps AE off, CaptureClock freeze / relative A−V, pair ±400 ms, clock gate until settled, NTSC lock MISS honest, SIG PCM not a timestamp. Do not install. Do not launch. No TestFlight.
+
+HostHarness: silent-ch0 stereo recovers PA-scale RMS; int32 true scale; 89% PA-scale onsets; crushed 0.001 does not; smeared 15/80 ms pairs; speech still rejected; constant offset / 30 vs 29.97 still hold.
