@@ -1858,6 +1858,93 @@ struct HostHarness {
             expect(k2.contains(.flash) && k2.contains(.audioPulse) && k2.contains(.pair), "EVT marks on unified time match ingest FLASH+AUDIOPULSE+PAIR")
         }
 
+        do {
+            // Old isBeepLike duration gate (≤85 ms) would be false for a 250 ms
+            // periodic tone. Isolated 1 Hz +80 ms must still PAIR on onset.
+            let e = SyncMeasurementEngine()
+            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 1.0, luminance: 0.8, threshold: 0.1))
+            let longTone = AudioPulseEvent(
+                timestampSeconds: 1.080,
+                envelope: 0.55,
+                threshold: 0.05,
+                durationSeconds: 0.250,
+                sharpness: 0.85,
+                isBeepLike: false
+            )
+            expect(longTone.isPairable, "250 ms periodic tone is pairable even if old isBeepLike was false")
+            let s = e.ingestPulse(longTone)
+            expect(s != nil && abs(s!.offsetMilliseconds - 80) < 0.5, "1 Hz flash + 250 ms tone +80 PAIR even if old isBeepLike was false", s.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
+        }
+
+        func feedTone(_ d: AudioPulseDetector, from t0: Double, until t1: Double, rate: Double = 48_000, buf: Int = 1024, paint: (Double) -> Float) -> [AudioPulseEvent] {
+            var hits: [AudioPulseEvent] = []
+            var t = t0
+            while t < t1 {
+                var samples = [Float](repeating: 0, count: buf)
+                for i in 0..<buf { samples[i] = paint(t + Double(i) / rate) }
+                if let ev = d.processMonoSamples(samples, bufferStartSeconds: t, sampleRate: rate) {
+                    hits.append(ev)
+                }
+                t += Double(buf) / rate
+            }
+            return hits
+        }
+        func hzTone(_ t: Double, start: Double, dur: Double, amp: Float, f: Double = 1_000) -> Float {
+            guard t >= start && t < start + dur else { return 0 }
+            let local = t - start
+            let fade = min(0.004, dur / 8)
+            let env: Float
+            if local < fade { env = Float(local / fade) }
+            else if local > dur - fade { env = Float(max(0, (dur - local) / fade)) }
+            else { env = 1 }
+            return env * amp * Float(sin(2 * Double.pi * f * t))
+        }
+
+        do {
+            // (a) 1 Hz flash + ~67 ms 2-frame tone, pulse +80 ms, PAIR on onset.
+            let d = AudioPulseDetector()
+            _ = feedTone(d, from: 0.0, until: 0.8, paint: { _ in 0.001 })
+            let hits = feedTone(d, from: 0.8, until: 2.4, paint: { t in
+                0.001 + hzTone(t, start: 1.080, dur: 0.067, amp: 0.55) + hzTone(t, start: 2.080, dur: 0.067, amp: 0.55)
+            })
+            expect(hits.count == 2, "67 ms 1 Hz tone onsets (not dropped as ongoing energy)", "n=\(hits.count) times=\(hits.map { String(format: "%.3f", $0.timestampSeconds) })")
+            if hits.count >= 1 {
+                expect(abs(hits[0].timestampSeconds - 1.080) < 0.012, "67 ms tone PAIR stamp is ONSET not duration", String(format: "%.4f", hits[0].timestampSeconds))
+                expect(hits[0].isBeepLike && hits[0].isPairable, "67 ms isolated tone is beep-like / pairable")
+            }
+            let e = SyncMeasurementEngine()
+            if hits.count >= 2 {
+                _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 1.0, luminance: 0.8, threshold: 0.1))
+                let a = e.ingestPulse(hits[0])
+                _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 2.0, luminance: 0.8, threshold: 0.1))
+                let b = e.ingestPulse(hits[1])
+                expect(a != nil && abs((a?.offsetMilliseconds ?? 999) - 80) < 15, "1 Hz flash + 67 ms tone +80 PAIR", a.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
+                expect(b != nil && abs((b?.offsetMilliseconds ?? 999) - 80) < 15, "second 67 ms 1 Hz tone pairs on onset", b.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
+            }
+        }
+
+        do {
+            // (b) 1 Hz flash + longer 200–400 ms tone, PAIR on onset (not mid/end).
+            for dur in [0.200, 0.300, 0.400] {
+                let d = AudioPulseDetector()
+                _ = feedTone(d, from: 0.0, until: 0.8, paint: { _ in 0.001 })
+                let hits = feedTone(d, from: 0.8, until: 1.9, paint: { t in
+                    0.001 + hzTone(t, start: 1.080, dur: dur, amp: 0.60)
+                })
+                let ms = Int(dur * 1000)
+                expect(hits.count == 1, "\(ms) ms 1 Hz tone onsets once", "n=\(hits.count) times=\(hits.map { String(format: "%.3f", $0.timestampSeconds) })")
+                if let onset = hits.first {
+                    expect(abs(onset.timestampSeconds - 1.080) < 0.015, "\(ms) ms tone PAIR stamp is ONSET not mid/end", String(format: "onset %.4f (mid would be %.3f end %.3f)", onset.timestampSeconds, 1.080 + dur / 2, 1.080 + dur))
+                    expect(onset.timestampSeconds < 1.080 + 0.050, "\(ms) ms tone must not stamp late in the tone", String(format: "%.4f", onset.timestampSeconds))
+                    expect(onset.isBeepLike && onset.isPairable, "\(ms) ms isolated tone is pairable (not speech)")
+                    let e = SyncMeasurementEngine()
+                    _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 1.0, luminance: 0.8, threshold: 0.1))
+                    let s = e.ingestPulse(onset)
+                    expect(s != nil && abs((s?.offsetMilliseconds ?? 999) - 80) < 20, "1 Hz flash + \(ms) ms tone +80 PAIR on onset", s.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
+                }
+            }
+        }
+
         if failed == 0 {
             print("ALL HARNESS TESTS PASSED")
         } else {

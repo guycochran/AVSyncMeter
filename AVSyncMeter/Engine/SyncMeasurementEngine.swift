@@ -13,8 +13,9 @@ import Foundation
 /// pulse still wins; overlapping speech is never queued. Pair if |audio − video|
 /// ≤ maxPairOffsetSeconds (default ±400 ms, enough for monitor+PA+Mitti and a
 /// +164 ms step, tight enough that a 220–350 ms ring-down replica cannot steal
-/// the next 1 Hz flash). Isolated 1 Hz (smear ≤ 85 ms, quiet after) pairs even
-/// if the old isBeepLike gate was false. Overlapping/ongoing speech never pairs.
+/// the next 1 Hz flash). Isolated 1 Hz pairs on onset even if the old
+/// isBeepLike duration gate was false (67 ms or 200–400 ms periodic tone).
+/// Overlapping/ongoing speech never pairs.
 /// pairingWindowSeconds is how long a lone event waits.
 ///
 /// Sign: offsetMilliseconds = (audio - video) * 1000. See SyncSignConvention.
@@ -100,7 +101,7 @@ final class SyncMeasurementEngine {
         ))
         if !event.isPairable {
             // Extra voice in the window must not steal. Never queue chatter.
-            // Isolated 1 Hz smear still isPairable even if isBeepLike was false.
+            // Isolated 1 Hz / periodic tone still isPairable even if old isBeepLike was false.
             rejectExtraPulse(event)
             expireStale(now: event.timestampSeconds)
             return pairReady()

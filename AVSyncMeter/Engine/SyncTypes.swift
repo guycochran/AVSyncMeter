@@ -52,12 +52,13 @@ struct AudioPulseEvent: Equatable {
     /// test pulses keep pairing like a house beep.
     var isBeepLike: Bool = true
 
-    /// Isolated 1 Hz house beep / PA smear must pair even when the old
-    /// isBeepLike gate was false (smeared, dull, longer than 20 ms).
-    /// Speech is overlapping/ongoing energy (duration well above an 85 ms
-    /// smear), not a once-per-second spike.
+    /// Isolated 1 Hz house hit must pair even when the old isBeepLike
+    /// duration gate was false. A periodic tone (sharp, including 67 ms
+    /// or 200–400 ms) is not speech. Speech is overlapping/ongoing
+    /// (low sharpness, long dull energy), not a once-per-second spike.
     var isPairable: Bool {
         if isBeepLike { return true }
+        if sharpness >= 0.40 { return true }
         return durationSeconds >= 0.001 && durationSeconds <= 0.085
     }
 

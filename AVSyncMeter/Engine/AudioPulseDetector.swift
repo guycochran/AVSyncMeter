@@ -10,11 +10,11 @@ import Accelerate
 /// 1 ms per beep. The noise floor is updated only on quiet hops, never
 /// during the mask. Onset time = buffer media timestamp + sample offset.
 ///
-/// Stage-noise: only *beep-like* pulses are emitted — an isolated transient
-/// then quiet, not sustained voice. A PA-smeared 1 Hz Harkwood/PCM beep
-/// (15–80 ms, even quiet) must still event. Speech stays loud so quiet
-/// re-arm cannot fire on the next syllable. A 1 kHz overlay can still win
-/// while voice is held. 400 ms mask after a real beep.
+/// Stage-noise: emit isolated 1 Hz hits on onset, not after the tone ends.
+/// A PA-smeared / 2-frame (~67 ms) / 200–400 ms periodic 1 kHz beep must
+/// still event. Speech is overlapping/ongoing energy, not a periodic tone.
+/// Speech stays loud so quiet re-arm cannot fire on the next syllable.
+/// A 1 kHz overlay can still win while voice is held. 400 ms mask after a real beep.
 ///
 /// No pitch detection (high-band energy / duration / isolation).
 final class AudioPulseDetector {
@@ -310,51 +310,54 @@ final class AudioPulseDetector {
         return combinedStart + Double(max(searchStart, hopEnd - win)) / sampleRate
     }
 
-    /// Commit an isolated pulse as beep-like, or drop sustained voice.
-    /// A ~1 Hz PA-smeared beep (15–80 ms, quiet after) must event even if it
-    /// is longer than 20 ms or low amplitude — isolated 1 Hz is not speech.
-    /// Speech is overlapping/ongoing energy (no quiet gap), not a once-per-
-    /// second spike. A sharp 1 kHz smear may run a bit past 85 ms and still
-    /// event; a dull 100 ms syllable that returns to quiet does not.
+    /// Commit an isolated 1 Hz hit on ONSET, or drop overlapping speech.
+    /// PAIR uses the onset stamp, not tone duration. A Harkwood 2-frame
+    /// (~67 ms) or a 200–400 ms periodic 1 kHz tone is still one isolated
+    /// hit — speech is overlapping/ongoing energy, not a periodic tone.
+    /// Dull 15–80 ms PA smear then quiet still events. A dull 100 ms+
+    /// syllable (overlapping/ongoing, not 1 kHz) still does not.
     private func finishCandidateIfReady(now: Double) -> AudioPulseEvent? {
         guard let c = candidate else { return nil }
         let duration = max(0, c.lastLoudSeconds - c.onsetSeconds)
         let seen = now - c.onsetSeconds
         let quietFor = now - c.lastLoudSeconds
         let maxDur = configuration.beepMaxDurationSeconds
+        let toneLike = c.sharpness >= 0.40
+
+        func emitOnset() -> AudioPulseEvent {
+            candidate = nil
+            ignoreSustainedUntilQuiet = false
+            maskUntilSeconds = c.onsetSeconds + configuration.maskSeconds
+            awaitingRearm = true
+            return AudioPulseEvent(
+                timestampSeconds: c.onsetSeconds,
+                envelope: c.peakEnvelope,
+                threshold: c.threshold,
+                durationSeconds: max(duration, 0.001),
+                sharpness: c.sharpness,
+                isBeepLike: true
+            )
+        }
+
+        // Periodic 1 kHz (or other sharp) hit: emit as soon as onset is
+        // confirmed. Waiting for quiet / ≤85 ms classified a 67–400 ms
+        // house tone as ongoing energy and never queued a pulse.
+        if toneLike && seen >= 0.006 && duration >= 0.001 {
+            return emitOnset()
+        }
 
         if quietFor >= 0.004 && duration >= 0.001 && seen >= duration {
-            // Isolated: energy returned to quiet. Do not drop a 1 Hz house
-            // beep as speech just because smear > 20 ms or the old isBeepLike
-            // gate would have been false.
-            let isolatedBeep = duration <= maxDur || (duration <= 0.20 && c.sharpness >= 0.40)
-            if isolatedBeep {
-                candidate = nil
-                ignoreSustainedUntilQuiet = false
-                maskUntilSeconds = c.onsetSeconds + configuration.maskSeconds
-                awaitingRearm = true
-                return AudioPulseEvent(
-                    timestampSeconds: c.onsetSeconds,
-                    envelope: c.peakEnvelope,
-                    threshold: c.threshold,
-                    durationSeconds: duration,
-                    sharpness: c.sharpness,
-                    isBeepLike: true
-                )
+            if duration <= maxDur {
+                return emitOnset()
             }
-            // Isolated but voice-like (syllable then quiet). Not a 1 Hz beep.
+            // Dull syllable then quiet. Not a 1 Hz house beep.
             candidate = nil
             ignoreSustainedUntilQuiet = true
             return nil
         }
         if seen >= maxDur + 0.012 && duration > maxDur && quietFor < 0.004 {
-            // Sustained voice/walkie: still loud, no isolated quiet gap.
-            // Do not 400 ms-mask (a 1 kHz beep overlay still has to win).
-            candidate = nil
-            ignoreSustainedUntilQuiet = true
-            return nil
-        }
-        if seen >= 0.20 + 0.012 && duration > 0.20 && quietFor < 0.004 {
+            // Still loud and not tone-like: overlapping/ongoing speech.
+            // Do not 400 ms-mask (a 1 kHz overlay still has to win).
             candidate = nil
             ignoreSustainedUntilQuiet = true
             return nil
