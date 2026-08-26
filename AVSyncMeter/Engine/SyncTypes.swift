@@ -13,9 +13,28 @@ import Foundation
 enum SyncSignConvention {
     static let documentation = """
     offsetMilliseconds = audioTimestamp - videoTimestamp
-    AUDIO EARLY (positive): sound before picture → Mitti Audio Delay = +offset ms
+    AUDIO EARLY (positive): sound before picture → increase audio delay by offset ms
     AUDIO LATE (negative): picture before sound → reduce audio delay by |offset| ms
+    Common house case is AUDIO EARLY (picture late through the video chain).
     """
+
+    /// Common case is AUDIO EARLY: increase audio delay by X (Mitti Audio Output
+    /// or mixer). Do not lead with "reduce".
+    static func recommendedDelay(_ offsetMs: Double) -> String {
+        if offsetMs >= 0 {
+            return String(format: "Increase audio delay by %.0f ms", offsetMs)
+        }
+        return String(format: "Reduce audio delay by %.0f ms", abs(offsetMs))
+    }
+
+    /// Measure-screen recipe. HDMI embed is glued to the picture; mic must hear the PA.
+    static let measureRecipe: [String] = [
+        "Camera on the projector/LED.",
+        "Mute the display's speakers (HDMI embed is glued to the picture).",
+        "Mic at the PA.",
+        "PCM from the start.",
+        "When SYNC STABLE, type AUDIO EARLY into Mitti Audio Output (or mixer delay). Audio is always fast.",
+    ]
 }
 
 enum SyncDirection: Equatable {

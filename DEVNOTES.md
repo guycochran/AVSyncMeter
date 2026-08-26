@@ -193,3 +193,15 @@ A Harkwood 2-frame white (~66.7 ms) can timestamp the first rising frame when th
 Build 18: `VideoFlashDetector` still triggers on a flash-like pop, then walks back to the **first rising frame** of that bright run (like audio onset walkback). Dim-first + full-second, 60 fps smear, and last-peak gradual shapes all stamp the first edge. HostHarness: 2-frame luma (first vs second) + 66.7 ms 3 kHz at +0 is one cluster near 0, not −50/+11. Do not hide house lag in calibration.
 
 Do not install. Do not launch. No TestFlight.
+
+
+## Build 19 (earliest PA pulse wins; HDMI embed must not steal)
+
+On-device 0.1.2 (17) upstairs: pairing rock solid, meter ~−11. +200 ms Mitti Audio Output (audio-only) did **not** move the meter. Cause: latest-wins pulse. PA beep is EARLY (before flash). HDMI embed is WITH the flash and replaced `pendingPulse`. Picture is late through UltraStudio / SDI–HDMI / projector / LED processor / router. Audio is always fast. Mic must hear the XR18 PA, not the display's HDMI embed.
+
+Build 19 keeps the earliest beep-like pulse in the pair window. A later pulse within ~80 ms of the flash (the embed) does not replace a PA beep at T−80 / T−200. On-screen recipe replaces the generic PCM blurb: camera on projector/LED, mute display speakers, mic at the PA, PCM from the start, when SYNC STABLE type AUDIO EARLY into Mitti Audio Output (or mixer delay). Advice copy is increase audio delay (common AUDIO EARLY), not reduce. ZERO / SET TRUE / CLEAR, sign, median, cal 0 unchanged. Do not bump detector gain. START pinned, 90 s VU, honest NTSC, CaptureClock unified EVT=ingest. (18) first-rising-frame flash stamp stays.
+
+HostHarness must fail (17) latest-wins and PASS: flash at T + PA 3 kHz 66.7 ms at T−80 / T−200 + embed at T+0 pairs at the PA offset; overlapping speech still rejected; isolated 67/200/300/400 ms tones PAIR on onset; 2-frame first-rising still one cluster near 0; CANONICAL Harkwood 1001 ms / 66.678 ms 3 kHz still PAIR.
+
+Install with devicectl only if UDID 00008120-001A6C2E1100201E is already USB — do not launch. No TestFlight. Do not call Guy down.
+

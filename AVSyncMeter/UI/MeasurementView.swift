@@ -247,10 +247,16 @@ struct MeasurementView: View {
     }
 
     private var pcmHint: some View {
-        Text("PCM stereo, start from the beginning.")
-            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-            .foregroundStyle(VenueTheme.meter)
-            .padding(.top, 2)
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(SyncSignConvention.measureRecipe.enumerated()), id: \.offset) { _, line in
+                Text(line)
+            }
+        }
+        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+        .foregroundStyle(VenueTheme.meter)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 2)
+        .padding(.horizontal, 8)
     }
 
     private var recentTable: some View {
@@ -626,10 +632,7 @@ struct MeasurementView: View {
     }
 
     private func recommendedDelay(_ offsetMs: Double) -> String {
-        if offsetMs >= 0 {
-            return String(format: "Recommended audio delay: %+.0f ms", offsetMs)
-        }
-        return String(format: "Reduce audio delay by %.0f ms", abs(offsetMs))
+        SyncSignConvention.recommendedDelay(offsetMs)
     }
 
     private func frameLine(_ offsetMs: Double) -> String {

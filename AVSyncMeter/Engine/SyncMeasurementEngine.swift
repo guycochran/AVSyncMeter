@@ -9,14 +9,15 @@ import Foundation
 /// Pairing: unpaired flashes stay in a short queue (not keep-latest of one).
 /// A 60 fps measure queue can ingest the next 1 Hz flash before a beep-like
 /// pulse whose onset is still in window of the previous flash — dropping that
-/// flash as extra was zero pairs with FLASH+AUDIOPULSE marks. Latest pairable
-/// pulse still wins; overlapping speech is never queued. Pair if |audio − video|
-/// ≤ maxPairOffsetSeconds (default ±400 ms, enough for monitor+PA+Mitti and a
-/// +164 ms step, tight enough that a 220–350 ms ring-down replica cannot steal
-/// the next 1001 ms flash). Isolated house hits pair on onset even if the old
-/// isBeepLike duration gate was false (Harkwood 1001 ms / 66.7 ms 3 kHz,
-/// or a 200–400 ms periodic tone). Overlapping/ongoing speech never pairs.
-/// pairingWindowSeconds is how long a lone event waits.
+/// flash as extra was zero pairs with FLASH+AUDIOPULSE marks. Earliest pairable
+/// pulse wins; a later pulse within ~80 ms of the flash (HDMI embed, glued to
+/// picture) must not replace a PA beep at T−80 / T−200. Overlapping speech is
+/// never queued. Pair if |audio − video| ≤ maxPairOffsetSeconds (default ±400 ms,
+/// enough for monitor+PA+Mitti and a +164 ms step, tight enough that a 220–350 ms
+/// ring-down replica cannot steal the next 1001 ms flash). Isolated house hits
+/// pair on onset even if the old isBeepLike duration gate was false (Harkwood
+/// 1001 ms / 66.7 ms 3 kHz, or a 200–400 ms periodic tone). Overlapping/ongoing
+/// speech never pairs. pairingWindowSeconds is how long a lone event waits.
 ///
 /// Sign: offsetMilliseconds = (audio - video) * 1000. See SyncSignConvention.
 final class SyncMeasurementEngine {
@@ -107,12 +108,40 @@ final class SyncMeasurementEngine {
             return pairReady()
         }
         if let old = pendingPulse {
-            // Latest pairable pulse wins; do not queue a second pulse.
-            rejectExtraPulse(old)
+            // Earliest pairable pulse in the pair window wins. HDMI embed at
+            // the flash (T+0) must not replace a PA beep at T−80 / T−200.
+            if shouldReplacePendingPulse(old: old, with: event) {
+                rejectExtraPulse(old)
+                pendingPulse = event
+            } else {
+                rejectExtraPulse(event)
+            }
+        } else {
+            pendingPulse = event
         }
-        pendingPulse = event
         expireStale(now: event.timestampSeconds)
         return pairReady()
+    }
+
+    /// Keep the earliest beep-like pulse. A later pulse within ~80 ms of a
+    /// pending flash is the HDMI embed (glued to picture) and never replaces.
+    /// A later pulse still inside the pair window is the same beat (embed /
+    /// replica). A pulse beyond maxPairOffsetSeconds is the next 1 Hz hit.
+    private func shouldReplacePendingPulse(old: AudioPulseEvent, with event: AudioPulseEvent) -> Bool {
+        let embedWindow = 0.080
+        if event.timestampSeconds < old.timestampSeconds {
+            return true
+        }
+        let nearFlash = pendingFlashes.contains {
+            abs(event.timestampSeconds - $0.timestampSeconds) <= embedWindow
+        }
+        if nearFlash {
+            return false
+        }
+        if event.timestampSeconds - old.timestampSeconds <= configuration.maxPairOffsetSeconds {
+            return false
+        }
+        return true
     }
 
     func snapshot() -> MeasurementSnapshot {
@@ -271,7 +300,7 @@ final class SyncMeasurementEngine {
         appendDiagnostic(DiagnosticEvent(
             id: UUID(),
             kind: .rejectedExtraPulse,
-            message: String(format: "Extra audio dropped (keep beep-like) a %.4f  beep %d", pulse.timestampSeconds, pulse.isBeepLike ? 1 : 0),
+            message: String(format: "Extra audio dropped (keep earliest) a %.4f  beep %d", pulse.timestampSeconds, pulse.isBeepLike ? 1 : 0),
             videoPTS: nil,
             audioPTS: pulse.timestampSeconds,
             offsetMilliseconds: nil,

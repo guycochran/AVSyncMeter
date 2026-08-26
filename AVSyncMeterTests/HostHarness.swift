@@ -1046,13 +1046,14 @@ struct HostHarness {
         }
 
         do {
-            // At most one pending pulse: latest beep-like wins, no queued chatter.
+            // At most one pending pulse: earliest beep-like wins. (17) latest-wins
+            // would pair +80 (the later pulse / HDMI embed).
             let e = SyncMeasurementEngine()
             _ = e.ingestPulse(.beepLike(timestampSeconds: 1.000, envelope: 0.4))
             _ = e.ingestPulse(.beepLike(timestampSeconds: 1.080, envelope: 0.9))
             _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 1.000, luminance: 0.8, threshold: 0.1))
             let snap = e.snapshot()
-            expect(snap.validCount == 1 && abs((snap.currentOffsetMilliseconds ?? 0) - 80) < 0.5, "latest beep-like wins (not the first noise hit)", String(format: "n=%d off=%.2f", snap.validCount, snap.currentOffsetMilliseconds ?? -1))
+            expect(snap.validCount == 1 && abs((snap.currentOffsetMilliseconds ?? 999) - 0) < 0.5, "earliest beep-like wins (fails (17) latest-wins +80)", String(format: "n=%d off=%.2f", snap.validCount, snap.currentOffsetMilliseconds ?? -1))
         }
 
         do {
@@ -2201,8 +2202,8 @@ struct HostHarness {
         }
 
         do {
-            // Longer isolated 200–400 ms tone still PAIR on onset (not the Harkwood canonical).
-            for dur in [0.200, 0.300, 0.400] {
+            // Isolated 67/200/300/400 ms tone still PAIR on onset (not the Harkwood canonical).
+            for dur in [0.067, 0.200, 0.300, 0.400] {
                 let d = AudioPulseDetector()
                 _ = feedTone(d, from: 0.0, until: 0.8, paint: { _ in 0.001 })
                 let hits = feedTone(d, from: 0.8, until: 1.9, paint: { t in
@@ -2222,6 +2223,72 @@ struct HostHarness {
             }
         }
 
+
+
+        // MARK: - Build 19: earliest PA pulse wins (HDMI embed must not steal)
+        //
+        // (17) latest-wins: PA at T−80 then embed at T+0 then flash at T pairs ~0.
+        // House: PA is early (audio always fast); HDMI embed is glued to picture.
+        // Mic hears both. Keep the earliest pairable pulse in the pair window.
+
+        do {
+            let early = SyncSignConvention.recommendedDelay(80)
+            expect(early.contains("Increase") && !early.lowercased().contains("reduce"), "AUDIO EARLY advice is increase audio delay, not reduce", early)
+            let recipe = SyncSignConvention.measureRecipe.joined(separator: " ")
+            expect(recipe.contains("Camera on the projector/LED."), "recipe: camera on projector/LED")
+            expect(recipe.contains("Mute the display's speakers"), "recipe: mute display speakers (HDMI embed)")
+            expect(recipe.contains("Mic at the PA."), "recipe: mic at the PA")
+            expect(recipe.contains("PCM from the start."), "recipe: PCM from the start")
+            expect(recipe.contains("AUDIO EARLY") && recipe.contains("Mitti Audio Output"), "recipe: type AUDIO EARLY into Mitti", recipe)
+            expect(recipe.contains("Audio is always fast."), "recipe: audio is always fast")
+        }
+
+        for paOffset in [-0.080, -0.200] {
+            let T = 5.0
+            let e = SyncMeasurementEngine()
+            _ = e.ingestPulse(.beepLike(timestampSeconds: T + paOffset, envelope: 0.7))
+            _ = e.ingestPulse(.beepLike(timestampSeconds: T, envelope: 0.9))
+            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: T, luminance: 0.90, threshold: 0.1))
+            let snap = e.snapshot()
+            let want = paOffset * 1_000.0
+            let ms = Int((-paOffset) * 1_000.0)
+            expect(snap.validCount == 1, "PA T−\(ms) then embed T+0 then flash: one PAIR (fails (17) latest-wins)", "n=\(snap.validCount)")
+            expect(abs((snap.currentOffsetMilliseconds ?? 999) - want) < 0.5, "PA T−\(ms) + embed T+0 pairs at PA \(Int(want)) ms not ~0 (fails (17) latest-wins)", String(format: "off=%.2f", snap.currentOffsetMilliseconds ?? -1))
+        }
+
+        do {
+            // Embed ingested first, then earlier PA must still win.
+            let T = 6.0
+            let e = SyncMeasurementEngine()
+            _ = e.ingestPulse(.beepLike(timestampSeconds: T, envelope: 0.9))
+            _ = e.ingestPulse(.beepLike(timestampSeconds: T - 0.080, envelope: 0.7))
+            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: T, luminance: 0.90, threshold: 0.1))
+            let snap = e.snapshot()
+            expect(snap.validCount == 1 && abs((snap.currentOffsetMilliseconds ?? 999) + 80) < 0.5, "later-ingested earlier PA still wins over embed", String(format: "n=%d off=%.2f", snap.validCount, snap.currentOffsetMilliseconds ?? -1))
+        }
+
+        for paOffset in [-0.080, -0.200] {
+            let T = 2.0
+            let d = AudioPulseDetector()
+            _ = feedTone(d, from: 0.0, until: T + paOffset - 0.08, paint: { _ in 0.001 })
+            let hits = feedTone(d, from: T + paOffset - 0.08, until: T + 0.30, paint: { t in
+                0.001
+                    + hzTone(t, start: T + paOffset, dur: harkwoodBeepDur, amp: 0.55, f: harkwoodBeepHz)
+                    + hzTone(t, start: T, dur: harkwoodBeepDur, amp: 0.70, f: harkwoodBeepHz)
+            })
+            let ms = Int((-paOffset) * 1_000.0)
+            expect(!hits.isEmpty, "PA 3 kHz 66.7 ms T−\(ms) + embed T+0 detector emits at least the PA", "n=\(hits.count)")
+            if let first = hits.first {
+                expect(abs(first.timestampSeconds - (T + paOffset)) < 0.025, "first onset is the PA at T−\(ms) not the embed", String(format: "onset %.4f want %.4f n=%d", first.timestampSeconds, T + paOffset, hits.count))
+            }
+            let e = SyncMeasurementEngine()
+            for h in hits { _ = e.ingestPulse(h) }
+            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: T, luminance: 0.90, threshold: 0.1))
+            let snap = e.snapshot()
+            let want = paOffset * 1_000.0
+            expect(snap.validCount >= 1, "PA 3 kHz 66.7 ms T−\(ms) + embed T+0 + flash PAIRs", "n=\(snap.validCount) hits=\(hits.count)")
+            expect(abs(snap.medianMilliseconds - want) < 25, "PAIR at PA T−\(ms) not embed ~0", String(format: "med %.2f hits=%d times=%@", snap.medianMilliseconds, hits.count, hits.map { String(format: "%.3f", $0.timestampSeconds) }.joined(separator: ",")))
+        }
 
         if failed == 0 {
             print("ALL HARNESS TESTS PASSED")
