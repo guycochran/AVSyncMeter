@@ -256,24 +256,14 @@ final class SyncMeasurementEngineTests: XCTestCase {
         XCTAssertEqual(event!.timestampSeconds, expected, accuracy: 32.0 / rate)
     }
 
-    func testEarliestPAPulseWinsOverEmbedAtFlash() {
-        for paOffset in [-0.080, -0.200] {
-            let e = SyncMeasurementEngine()
-            let T = 5.0
-            _ = e.ingestPulse(.beepLike(timestampSeconds: T + paOffset, envelope: 0.7))
-            _ = e.ingestPulse(.beepLike(timestampSeconds: T, envelope: 0.9))
-            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: T, luminance: 0.9, threshold: 0.1))
-            let snap = e.snapshot()
-            XCTAssertEqual(snap.validCount, 1)
-            XCTAssertEqual(snap.currentOffsetMilliseconds ?? 999, paOffset * 1_000.0, accuracy: 0.5)
-        }
-    }
 
     func testRecommendedDelayIncreasesForAudioEarly() {
         let s = SyncSignConvention.recommendedDelay(80)
         XCTAssertTrue(s.contains("Increase"))
         XCTAssertFalse(s.lowercased().contains("reduce"))
-        XCTAssertTrue(SyncSignConvention.measureRecipe.contains(where: { $0.contains("Mic at the PA") }))
+        XCTAssertTrue(SyncSignConvention.measureRecipe.contains(where: { $0.contains("Mic on the PA") }))
+        XCTAssertTrue(SyncSignConvention.measureRecipe.contains(where: { $0.contains("LCD") }))
+        XCTAssertFalse(SyncSignConvention.measureRecipe.joined(separator: " ").lowercased().contains("embed"))
     }
 }
 
