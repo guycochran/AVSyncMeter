@@ -10,7 +10,7 @@ Local only. No analytics. No network required. The app does not record or perman
 
 From the seat:
 
-`Mitti → Blackmagic UltraStudio → SDI → HDMI → projector` for picture, and console/PA for sound.
+`Mitti → Blackmagic UltraStudio SDI out → SDI run → SDI-to-HDMI → LCD / projector / LED` for picture, and `Mitti Audio Output → mixer → amp → PA` for sound.
 
 Acoustic travel from the loudspeakers **is part of the measurement**. The app does not auto-correct for speaker distance. That is the point of measuring from the audience.
 

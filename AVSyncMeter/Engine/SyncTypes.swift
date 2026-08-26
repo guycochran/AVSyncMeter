@@ -27,10 +27,11 @@ enum SyncSignConvention {
         return String(format: "Reduce audio delay by %.0f ms", abs(offsetMs))
     }
 
-    /// Measure-screen recipe. HDMI embed is glued to the picture; mic must hear the PA.
+    /// Measure-screen recipe. Mute display speakers: HDMI embed is glued to
+    /// picture (still useful if a monitor has speakers). Mic must hear the PA.
     static let measureRecipe: [String] = [
         "Camera on the projector/LED.",
-        "Mute the display's speakers (HDMI embed is glued to the picture).",
+        "Mute the display's speakers (HDMI embed is glued to the picture — still useful if a monitor has speakers).",
         "Mic at the PA.",
         "PCM from the start.",
         "When SYNC STABLE, type AUDIO EARLY into Mitti Audio Output (or mixer delay). Audio is always fast.",

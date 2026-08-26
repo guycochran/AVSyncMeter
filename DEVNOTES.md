@@ -197,11 +197,15 @@ Do not install. Do not launch. No TestFlight.
 
 ## Build 19 (earliest PA pulse wins; HDMI embed must not steal)
 
-On-device 0.1.2 (17) upstairs: pairing rock solid, meter ~−11. +200 ms Mitti Audio Output (audio-only) did **not** move the meter. Cause: latest-wins pulse. PA beep is EARLY (before flash). HDMI embed is WITH the flash and replaced `pendingPulse`. Picture is late through UltraStudio / SDI–HDMI / projector / LED processor / router. Audio is always fast. Mic must hear the XR18 PA, not the display's HDMI embed.
+Last 4–5 on-device tests were the **SPLIT PATH**, not a laptop screen:
+Mitti → Blackmagic UltraStudio SDI out → 50 ft SDI → SDI-to-HDMI converter → small LCD.
+Audio: Mitti Audio Output → mixer → amp → PA. He does not delay picture.
 
-Build 19 keeps the earliest beep-like pulse in the pair window. A later pulse within ~80 ms of the flash (the embed) does not replace a PA beep at T−80 / T−200. On-screen recipe replaces the generic PCM blurb: camera on projector/LED, mute display speakers, mic at the PA, PCM from the start, when SYNC STABLE type AUDIO EARLY into Mitti Audio Output (or mixer delay). Advice copy is increase audio delay (common AUDIO EARLY), not reduce. ZERO / SET TRUE / CLEAR, sign, median, cal 0 unchanged. Do not bump detector gain. START pinned, 90 s VU, honest NTSC, CaptureClock unified EVT=ingest. (18) first-rising-frame flash stamp stays.
+On-device 0.1.2 (17) pairing was rock solid, meter ~−11. +200 ms Mitti Audio Output (audio-only) did **not** move the meter. Cause: latest-wins pulse. PA beep is EARLY (before flash). HDMI-embed is a hypothesis only if that LCD has speakers (unconfirmed); if the mic heard embed glued to picture, it would replace `pendingPulse` at ~0. Do not write this as Mac display or laptop speakers.
+
+Build 19 keeps the earliest beep-like pulse in the pair window. A later pulse within ~80 ms of the flash (embed, if present) does not replace a PA beep at T−80 / T−200. On-screen recipe: camera on projector/LED; mute the display's speakers (HDMI embed glued to picture — still useful if a monitor has speakers); mic at the PA; PCM from the start; when SYNC STABLE type AUDIO EARLY into Mitti Audio Output or mixer. Audio is always fast. Advice copy is increase audio delay (common AUDIO EARLY), not reduce. ZERO / SET TRUE / CLEAR, sign, median, cal 0 unchanged. Do not bump detector gain. START pinned, 90 s VU, honest NTSC, CaptureClock unified EVT=ingest. (18) first-rising-frame flash stamp stays.
 
 HostHarness must fail (17) latest-wins and PASS: flash at T + PA 3 kHz 66.7 ms at T−80 / T−200 + embed at T+0 pairs at the PA offset; overlapping speech still rejected; isolated 67/200/300/400 ms tones PAIR on onset; 2-frame first-rising still one cluster near 0; CANONICAL Harkwood 1001 ms / 66.678 ms 3 kHz still PAIR.
 
-Install with devicectl only if UDID 00008120-001A6C2E1100201E is already USB — do not launch. No TestFlight. Do not call Guy down.
+Do not install. Do not launch. No TestFlight. USB likely empty — do not wait. Do not call Guy down.
 
