@@ -20,22 +20,27 @@ final class SyncMeasurementEngineTests: XCTestCase {
         XCTAssertEqual(e.snapshot().correctedCurrentMilliseconds ?? -1, 0, accuracy: 0.0001)
     }
 
-    func testAudio200msEarly() {
+    func testBeepAfterFlashDisplaysAudioLate() {
+        // T+200 a>v: engine offset stays +200 (not negated). DISPLAY LATE / reduce.
         let e = engine()
         let sample = pair(e, tVideo: 5.0, tAudio: 5.200)
         XCTAssertNotNil(sample)
         XCTAssertEqual(sample!.offsetMilliseconds, 200, accuracy: 0.001)
-        XCTAssertEqual(sample!.direction, .audioEarly)
-        // AUDIO EARLY → recommended Mitti delay is +offset
+        XCTAssertEqual(sample!.direction, .audioLate)
+        XCTAssertEqual(SyncSignConvention.headline(200), "AUDIO LATE")
+        XCTAssertEqual(SyncSignConvention.shortTag(200), "LATE")
         XCTAssertGreaterThan(sample!.offsetMilliseconds, 0)
     }
 
-    func testAudio200msLate() {
+    func testBeepBeforeFlashDisplaysAudioEarly() {
+        // T−200 a<v: engine offset stays −200. DISPLAY EARLY / increase.
         let e = engine()
         let sample = pair(e, tVideo: 5.0, tAudio: 4.800)
         XCTAssertNotNil(sample)
         XCTAssertEqual(sample!.offsetMilliseconds, -200, accuracy: 0.001)
-        XCTAssertEqual(sample!.direction, .audioLate)
+        XCTAssertEqual(sample!.direction, .audioEarly)
+        XCTAssertEqual(SyncSignConvention.headline(-200), "AUDIO EARLY")
+        XCTAssertEqual(SyncSignConvention.shortTag(-200), "EARLY")
     }
 
     func testRepeatedEventsEverySecond() {
@@ -257,10 +262,15 @@ final class SyncMeasurementEngineTests: XCTestCase {
     }
 
 
-    func testRecommendedDelayIncreasesForAudioEarly() {
-        let s = SyncSignConvention.recommendedDelay(80)
-        XCTAssertTrue(s.contains("Increase"))
-        XCTAssertFalse(s.lowercased().contains("reduce"))
+    func testRecommendedDelayMatchesDisplayFlip() {
+        let late = SyncSignConvention.recommendedDelay(80)
+        XCTAssertTrue(late.contains("Reduce"))
+        XCTAssertFalse(late.lowercased().contains("increase"))
+        let early = SyncSignConvention.recommendedDelay(-80)
+        XCTAssertTrue(early.contains("Increase"))
+        XCTAssertFalse(early.lowercased().contains("reduce"))
+        XCTAssertEqual(MeasurementSession.headline(80), "AUDIO LATE")
+        XCTAssertEqual(MeasurementSession.headline(-80), "AUDIO EARLY")
         XCTAssertTrue(SyncSignConvention.measureRecipe.contains(where: { $0.contains("Mic on the PA") }))
         XCTAssertTrue(SyncSignConvention.measureRecipe.contains(where: { $0.contains("LCD") }))
         XCTAssertFalse(SyncSignConvention.measureRecipe.joined(separator: " ").lowercased().contains("embed"))

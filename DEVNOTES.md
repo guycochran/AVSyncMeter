@@ -225,3 +225,21 @@ Guy 22:28 local Mac test: Mitti Audio Output = Mac speakers, 500 ms audio-only, 
 (20) does **not** claim to fix upstairs +200 ms. It only makes a 500 ms Mac test able to show 500 if the delay is really in the speakers.
 
 Do not install. Do not launch. No TestFlight.
+
+## Build 21 (display sign flip only)
+
+Guy 09:25 house path, Mitti Audio Output 300 ms already in. DIAG a>v (+289 to +295) = beep AFTER flash = physically AUDIO LATE. UI said AUDIO EARLY / increase delay — label was inverted.
+
+(21) flips **display mapping only**. Engine `offsetMilliseconds = (audio − video) × 1000` is not negated. ZERO/SET stored milliseconds are not inverted. Cal default stays 0. Median magnitude unchanged.
+
+- a>v (offset > 0): AUDIO LATE, advice “Reduce audio delay by X”
+- a<v (offset < 0): AUDIO EARLY, advice “Increase audio delay by X”
+- Last-25 EARLY/LATE tags, headline, and Mitti delay copy follow that mapping
+- Recipe stays: camera on LCD/projector/LED, mic on PA, type AUDIO EARLY into Mitti Audio Output or mixer. Audio is always fast. At delay 0 on a video chain you should see EARLY / increase. No embed language.
+
+Expected: Mac 0 delay +13 EARLY → ~13 LATE; Mac 200 delay +191 EARLY → ~191 LATE (reduce 191 ≈ undo the 200); house 300: 295 LATE / reduce 295.
+
+HostHarness: same settle+freeze as the app. T+200 DISPLAY LATE/reduce; T−200 EARLY/increase. PAIR table T+0/80/200/300/500/800/−200/−500 still at engine a−v offset. Speech still rejected. 1.00 s pair window, first-rising, latest-wins pulse. No embed heuristic. No gain bump.
+
+Stay 0.1.2, CURRENT_PROJECT_VERSION 21. Park iphoneos Debug. Do not install. Phone stays on (20) until Guy plugs in. Do not launch. No TestFlight.
+

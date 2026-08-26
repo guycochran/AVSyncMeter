@@ -20,10 +20,10 @@ Acoustic travel from the loudspeakers **is part of the measurement**. The app do
 offsetMilliseconds = audioTimestamp - videoTimestamp
 ```
 
-- **AUDIO EARLY** (positive): sound before picture. **Increase audio delay by offset ms** (Mitti Audio Output or mixer). This is the common house case — picture is late, audio is always fast.
-- **AUDIO LATE** (negative): picture before sound. **Reduce** existing audio delay by **|offset| ms**.
+- **AUDIO LATE** (positive, a>v, beep after flash): picture before sound. **Reduce audio delay by offset ms**.
+- **AUDIO EARLY** (negative, a<v, beep before flash): sound before picture. **Increase audio delay by |offset| ms** (Mitti Audio Output or mixer). This is the common house case at delay 0 — picture is late, audio is always fast.
 
-Example: `+193 ms` at 29.97 fps is about **5.79 frames**. Recommended delay: **+193 ms**.
+Engine samples stay `audio − video` (not negated). Example: `+193 ms` at 29.97 fps is about **5.79 frames** AUDIO LATE — **reduce 193 ms**.
 
 ## How to measure
 
@@ -37,7 +37,7 @@ Example: `+193 ms` at 29.97 fps is about **5.79 frames**. Recommended delay: **+
 8. **SYNC STABLE** means the standard deviation of valid samples is under the Settings threshold (default 8 ms) and you have at least three valid pairs.
 9. Apply the recommended delay in Mitti. Re-measure.
 
-Mid-show **ZERO / SET TRUE / CLEAR** live on the main meter. On a known-good source (a reference you trust is actually in sync), tap **ZERO**: the app stores `calibrationOffset = measuredOffset − 0` (median of valid pairs if you have any, otherwise the current pair) and the displayed AUDIO EARLY/LATE and Mitti delay become the corrected value. **SET TRUE** does the same against a known offset (example: this source is actually +40 ms AUDIO EARLY → `calibrationOffset = measured − 40`). **CLEAR** writes 0 = none applied — that is not a claim of zero sensor latency. Phone camera/mic processing can still bias the reading.
+Mid-show **ZERO / SET TRUE / CLEAR** live on the main meter. On a known-good source (a reference you trust is actually in sync), tap **ZERO**: the app stores `calibrationOffset = measuredOffset − 0` (median of valid pairs if you have any, otherwise the current pair) and the displayed AUDIO EARLY/LATE and Mitti delay become the corrected value. **SET TRUE** does the same against a known offset (example: this source is actually +40 ms AUDIO LATE / engine a−v → `calibrationOffset = measured − 40`; storage is not inverted). **CLEAR** writes 0 = none applied — that is not a claim of zero sensor latency. Phone camera/mic processing can still bias the reading.
 
 ## Camera and microphone permissions
 

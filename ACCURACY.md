@@ -9,6 +9,8 @@ offsetMilliseconds = audioTimestamp - videoTimestamp
 correctedOffset    = measuredOffset - calibrationOffset
 ```
 
+Display labels (only): positive a>v = AUDIO LATE / reduce delay; negative a<v = AUDIO EARLY / increase delay. Stored samples and calibration are not negated. Default cal is 0 = none applied.
+
 Live timestamps are **unified host seconds**: each stream’s presentation timestamp is mapped through the capture session’s master clock onto the host clock. After that, `CaptureClock` rate-locks audio vs video unified times so capture-30.000 vs file-29.97 (exactly 1000 ppm) does not walk a constant delay. It freezes the fitted relative slope once settled and does not fit against callback arrival time. Pairing never subtracts raw video PTS from raw audio PTS.
 
 The result includes:

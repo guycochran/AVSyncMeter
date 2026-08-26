@@ -4,27 +4,47 @@ import Foundation
 ///
 ///     offsetMilliseconds = audioTimestamp - videoTimestamp
 ///
-/// - AUDIO EARLY: sound arrives before picture → **positive** offset.
-///   Recommended Mitti Audio Delay = +offset ms (delay the audio to wait for picture).
-/// - AUDIO LATE: picture arrives before sound → **negative** offset.
-///   Reduce existing Mitti audio delay by |offset| ms (or delay video if audio delay is already 0).
+/// Engine samples are **not** negated. Display labels only:
+/// - AUDIO LATE: a>v (offset **positive**), beep AFTER flash. Reduce audio delay by offset ms.
+/// - AUDIO EARLY: a<v (offset **negative**), beep BEFORE flash. Increase audio delay by |offset| ms.
+///
+/// Common house case at delay 0 is AUDIO EARLY (picture late through the video chain;
+/// audio is always fast). ZERO/SET store engine a−v milliseconds unchanged. Cal default 0.
 ///
 /// Timestamps are unified capture times (host-mapped via CaptureClock), in seconds.
 enum SyncSignConvention {
     static let documentation = """
     offsetMilliseconds = audioTimestamp - videoTimestamp
-    AUDIO EARLY (positive): sound before picture → increase audio delay by offset ms
-    AUDIO LATE (negative): picture before sound → reduce audio delay by |offset| ms
-    Common house case is AUDIO EARLY (picture late through the video chain).
+    DISPLAY only (stored samples are not negated):
+    AUDIO LATE (positive, a>v, beep after flash) → reduce audio delay by offset ms
+    AUDIO EARLY (negative, a<v, beep before flash) → increase audio delay by |offset| ms
+    Common house case at delay 0 is AUDIO EARLY (picture late; audio is always fast).
     """
 
-    /// Common case is AUDIO EARLY: increase audio delay by X (Mitti Audio Output
-    /// or mixer). Do not lead with "reduce".
+    /// a>v (offset > 0): AUDIO LATE → reduce. a<v (offset < 0): AUDIO EARLY → increase.
     static func recommendedDelay(_ offsetMs: Double) -> String {
-        if offsetMs >= 0 {
-            return String(format: "Increase audio delay by %.0f ms", offsetMs)
+        if offsetMs > 0 {
+            return String(format: "Reduce audio delay by %.0f ms", offsetMs)
         }
-        return String(format: "Reduce audio delay by %.0f ms", abs(offsetMs))
+        return String(format: "Increase audio delay by %.0f ms", abs(offsetMs))
+    }
+
+    /// Display mapping only. Engine offset stays audio − video.
+    static func displayDirection(_ offsetMs: Double) -> SyncDirection {
+        if abs(offsetMs) < 0.5 { return .inSync }
+        return offsetMs > 0 ? .audioLate : .audioEarly
+    }
+
+    static func headline(_ offsetMs: Double) -> String {
+        displayDirection(offsetMs).headline
+    }
+
+    static func shortTag(_ offsetMs: Double) -> String {
+        switch displayDirection(offsetMs) {
+        case .audioEarly: return "EARLY"
+        case .audioLate: return "LATE"
+        case .inSync: return "SYNC"
+        }
     }
 
     /// Measure-screen recipe. Camera on picture (LCD / projector / LED). Mic on the PA. LCD has no sound.
@@ -118,8 +138,7 @@ struct SyncSample: Equatable, Identifiable {
     let pairedAt: Date
 
     var direction: SyncDirection {
-        if abs(offsetMilliseconds) < 0.5 { return .inSync }
-        return offsetMilliseconds > 0 ? .audioEarly : .audioLate
+        SyncSignConvention.displayDirection(offsetMilliseconds)
     }
 }
 

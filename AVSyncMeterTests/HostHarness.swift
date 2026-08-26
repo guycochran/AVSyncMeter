@@ -27,14 +27,30 @@ struct HostHarness {
             expect(s != nil && abs(s!.offsetMilliseconds) < 0.0001, "exact sync")
         }
         do {
+            // T+200 beep AFTER flash (a>v): engine +200 unchanged. DISPLAY LATE / reduce.
             let e = engine()
             let s = pair(e, tVideo: 5.0, tAudio: 5.200)
-            expect(s != nil && abs(s!.offsetMilliseconds - 200) < 0.001 && s!.direction == .audioEarly, "audio 200 ms early")
+            expect(s != nil && abs(s!.offsetMilliseconds - 200) < 0.001, "T+200 engine a-v stays +200 (not negated)")
+            expect(s != nil && s!.direction == .audioLate, "T+200 DISPLAY LATE")
+            if let s {
+                let advice = SyncSignConvention.recommendedDelay(s.offsetMilliseconds)
+                expect(advice.contains("Reduce") && advice.contains("200") && !advice.lowercased().contains("increase"), "T+200 advice reduce", advice)
+                expect(SyncSignConvention.headline(s.offsetMilliseconds) == "AUDIO LATE", "T+200 headline AUDIO LATE")
+                expect(SyncSignConvention.shortTag(s.offsetMilliseconds) == "LATE", "T+200 last-25 LATE")
+            }
         }
         do {
+            // T−200 beep BEFORE flash (a<v): engine −200 unchanged. DISPLAY EARLY / increase.
             let e = engine()
             let s = pair(e, tVideo: 5.0, tAudio: 4.800)
-            expect(s != nil && abs(s!.offsetMilliseconds + 200) < 0.001 && s!.direction == .audioLate, "audio 200 ms late")
+            expect(s != nil && abs(s!.offsetMilliseconds + 200) < 0.001, "T-200 engine a-v stays -200 (not negated)")
+            expect(s != nil && s!.direction == .audioEarly, "T-200 DISPLAY EARLY")
+            if let s {
+                let advice = SyncSignConvention.recommendedDelay(s.offsetMilliseconds)
+                expect(advice.contains("Increase") && advice.contains("200") && !advice.lowercased().contains("reduce"), "T-200 advice increase", advice)
+                expect(SyncSignConvention.headline(s.offsetMilliseconds) == "AUDIO EARLY", "T-200 headline AUDIO EARLY")
+                expect(SyncSignConvention.shortTag(s.offsetMilliseconds) == "EARLY", "T-200 last-25 EARLY")
+            }
         }
         do {
             let e = engine()
@@ -120,7 +136,7 @@ struct HostHarness {
             )
             expect(measured != nil && abs(measured! - 193) < 0.001, "zero uses +193 raw pair")
             let stored = CalibrationMath.calibrationOffset(measuredOffset: measured ?? 0, knownTrueOffset: 0)
-            expect(abs(stored - 193) < 0.001, "zero stores cal +193")
+            expect(abs(stored - 193) < 0.001, "zero stores cal +193 (engine a-v NOT inverted)")
             e.configuration.calibrationOffsetMilliseconds = stored
             let zeroed = e.snapshot()
             expect(abs((zeroed.correctedCurrentMilliseconds ?? -1)) < 0.001, "zero displays 0")
@@ -2233,8 +2249,11 @@ struct HostHarness {
         // LCD has no sound. Only the PA. Keep (18) first-rising flash + on-screen recipe.
 
         do {
-            let early = SyncSignConvention.recommendedDelay(80)
-            expect(early.contains("Increase") && !early.lowercased().contains("reduce"), "AUDIO EARLY advice is increase audio delay, not reduce", early)
+            let late = SyncSignConvention.recommendedDelay(80)
+            expect(late.contains("Reduce") && !late.lowercased().contains("increase"), "a>v (+80) DISPLAY LATE advice is reduce", late)
+            let early = SyncSignConvention.recommendedDelay(-80)
+            expect(early.contains("Increase") && !early.lowercased().contains("reduce"), "a<v (-80) DISPLAY EARLY advice is increase", early)
+            expect(SyncSignConvention.headline(80) == "AUDIO LATE" && SyncSignConvention.headline(-80) == "AUDIO EARLY", "headline follows display flip")
             let recipe = SyncSignConvention.measureRecipe.joined(separator: " ")
             expect(recipe.contains("Camera on the LCD / projector / LED."), "recipe: camera on LCD/projector/LED")
             expect(recipe.contains("Mic on the PA."), "recipe: mic on the PA")
@@ -2356,6 +2375,18 @@ struct HostHarness {
                     expect(abs(got - wantMs) < 20, "offset table \(label): PAIR at \(Int(wantMs)) ms +/- a few ms (not residual-only / not 0)", String(format: "got %+.2f want %+.1f", got, wantMs))
                     if abs(wantMs) >= 80 {
                         expect(abs(got) > 40, "offset table \(label): must not collapse to residual/0", String(format: "got %+.2f", got))
+                    }
+                    // Display mapping only. Engine a-v numbers above stay unchanged.
+                    if abs(got) >= 0.5 {
+                        if wantMs > 0 {
+                            expect(sample!.direction == .audioLate, "offset table \(label): DISPLAY LATE (a>v)")
+                            let advice = SyncSignConvention.recommendedDelay(got)
+                            expect(advice.lowercased().contains("reduce") && !advice.lowercased().contains("increase"), "offset table \(label): advice reduce", advice)
+                        } else if wantMs < 0 {
+                            expect(sample!.direction == .audioEarly, "offset table \(label): DISPLAY EARLY (a<v)")
+                            let advice = SyncSignConvention.recommendedDelay(got)
+                            expect(advice.lowercased().contains("increase") && !advice.lowercased().contains("reduce"), "offset table \(label): advice increase", advice)
+                        }
                     }
                 }
             }

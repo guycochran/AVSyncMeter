@@ -117,7 +117,7 @@ struct MeasurementView: View {
             if settling { return VenueTheme.meter }
             guard let offset else { return VenueTheme.dim }
             if abs(offset) < 0.5 { return VenueTheme.stable }
-            return offset > 0 ? VenueTheme.early : VenueTheme.late
+            return offset > 0 ? VenueTheme.late : VenueTheme.early
         }()
         return VStack(spacing: 4) {
             Text(direction)
@@ -287,13 +287,13 @@ struct MeasurementView: View {
                         ForEach(Array(samples.enumerated()), id: \.element.id) { index, sample in
                             let seq = total - index
                             let corrected = sample.offsetMilliseconds - cal
-                            let dir: String = {
-                                if abs(corrected) < 0.5 { return "SYNC" }
-                                return corrected > 0 ? "EARLY" : "LATE"
-                            }()
+                            let dir = SyncSignConvention.shortTag(corrected)
                             let color: Color = {
-                                if abs(corrected) < 0.5 { return VenueTheme.stable }
-                                return corrected > 0 ? VenueTheme.early : VenueTheme.late
+                                switch SyncSignConvention.displayDirection(corrected) {
+                                case .audioEarly: return VenueTheme.early
+                                case .audioLate: return VenueTheme.late
+                                case .inSync: return VenueTheme.stable
+                                }
                             }()
                             let frames = settings.frameRate.frames(forMilliseconds: corrected)
                             HStack(spacing: 0) {
@@ -563,7 +563,7 @@ struct MeasurementView: View {
                     .keyboardType(.numbersAndPunctuation)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 22, weight: .bold, design: .monospaced))
-                Text("AUDIO EARLY is positive (e.g. +40). AUDIO LATE is negative. Stored calibration = measured − known true.")
+                Text("AUDIO LATE is positive (e.g. +40, beep after flash). AUDIO EARLY is negative (e.g. −40). Stored calibration = measured − known true (engine a−v, not inverted).")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 Text("Phone camera and microphone processing can introduce measurement bias. For critical systems, verify results against a known reference.")

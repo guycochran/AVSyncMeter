@@ -276,7 +276,6 @@ final class MeasurementSession: ObservableObject {
     }
 
     static func headline(_ offsetMs: Double) -> String {
-        if abs(offsetMs) < 0.5 { return "IN SYNC" }
-        return offsetMs > 0 ? "AUDIO EARLY" : "AUDIO LATE"
+        SyncSignConvention.headline(offsetMs)
     }
 }

@@ -49,7 +49,7 @@ struct DiagnosticsView: View {
                         // Synthetic media times, not used as a live measurement clock.
                         session.injectSynthetic(videoSeconds: t, audioSeconds: t + demoOffset / 1000.0)
                     }
-                    Button("Inject 5 stable early pairs (+200 ms)") {
+                    Button("Inject 5 stable late pairs (+200 ms)") {
                         let t0 = Date().timeIntervalSinceReferenceDate
                         for i in 0..<5 {
                             let t = t0 + Double(i)
