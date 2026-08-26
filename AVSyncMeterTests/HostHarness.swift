@@ -1709,6 +1709,155 @@ struct HostHarness {
             expect(MeterHistory.displayMicLevel(0.20) == 1, "display MIC clamps at 1")
         }
 
+        // MARK: - Build 17: isolated 1 Hz must PAIR; EVT=ingest; unified VU domain
+
+        do {
+            // 1 Hz flash + pulse +80 ms MUST PAIR even if smear/isBeepLike was
+            // false under the old gate (dull, 70 ms PA smear).
+            let e = SyncMeasurementEngine()
+            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 1.0, luminance: 0.8, threshold: 0.1))
+            let smeared = AudioPulseEvent(
+                timestampSeconds: 1.080,
+                envelope: 0.22,
+                threshold: 0.05,
+                durationSeconds: 0.070,
+                sharpness: 0.22,
+                isBeepLike: false
+            )
+            expect(smeared.isPairable, "isolated 70 ms 1 Hz smear is pairable even if old isBeepLike was false")
+            let s = e.ingestPulse(smeared)
+            expect(s != nil && abs(s!.offsetMilliseconds - 80) < 0.5, "1 Hz flash + smeared pulse +80 must PAIR even if old isBeepLike gate was false", s.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
+            expect(e.diagnostics.contains(where: { $0.kind == .audioPulse }), "EVT/ingest: AUDIOPULSE diagnostic is engine ingest")
+            expect(e.diagnostics.contains(where: { $0.kind == .paired }), "EVT/ingest: PAIR diagnostic matches ingest")
+        }
+
+        do {
+            // Isolated 1 Hz pulse next to a flash pairs (in-order and delayed).
+            let e = SyncMeasurementEngine()
+            var paired = 0
+            for i in 0..<6 {
+                let t = Double(i)
+                _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: t, luminance: 0.58, threshold: 0.124))
+                if i > 0 {
+                    let pulse = AudioPulseEvent(
+                        timestampSeconds: Double(i - 1) + 0.080,
+                        envelope: 0.30,
+                        threshold: 0.05,
+                        durationSeconds: 0.055,
+                        sharpness: 0.20,
+                        isBeepLike: false
+                    )
+                    if e.ingestPulse(pulse) != nil { paired += 1 }
+                }
+            }
+            if e.ingestPulse(AudioPulseEvent(
+                timestampSeconds: 5.080,
+                envelope: 0.30,
+                threshold: 0.05,
+                durationSeconds: 0.055,
+                sharpness: 0.20,
+                isBeepLike: false
+            )) != nil { paired += 1 }
+            expect(e.snapshot().validCount == 6, "isolated 1 Hz pulse next to FLASH pairs (delayed ingest)", "valid=\(e.snapshot().validCount) paired=\(paired)")
+            expect(abs(e.snapshot().medianMilliseconds - 80) < 1.0, "isolated 1 Hz pairs stay ~+80 ms")
+        }
+
+        do {
+            // Overlapping/ongoing speech still rejected (duration > 85 ms, !isBeepLike).
+            let e = SyncMeasurementEngine()
+            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 1.0, luminance: 0.8, threshold: 0.1))
+            _ = e.ingestPulse(.voiceLike(timestampSeconds: 1.050))
+            _ = e.ingestPulse(.voiceLike(timestampSeconds: 1.150))
+            let s = e.ingestPulse(.beepLike(timestampSeconds: 1.080, envelope: 0.85))
+            expect(s != nil && abs(s!.offsetMilliseconds - 80) < 0.5, "overlapping speech still rejected; pair is the +80 ms beep", s.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
+            expect(e.snapshot().validCount == 1, "speech does not create extra pairs", "n=\(e.snapshot().validCount)")
+            expect(!AudioPulseEvent.voiceLike(timestampSeconds: 0).isPairable, "ongoing speech duration is not pairable")
+        }
+
+        do {
+            // Detector: isolated 1 Hz that would fail the old sharp/short gate still onsets.
+            let d = AudioPulseDetector()
+            let rate = 48_000.0
+            func feed(from t0: Double, until t1: Double, paint: (Double) -> Float) -> [AudioPulseEvent] {
+                var hits: [AudioPulseEvent] = []
+                var t = t0
+                let buf = 1024
+                while t < t1 {
+                    var samples = [Float](repeating: 0, count: buf)
+                    for i in 0..<buf { samples[i] = paint(t + Double(i) / rate) }
+                    if let ev = d.processMonoSamples(samples, bufferStartSeconds: t, sampleRate: rate) {
+                        hits.append(ev)
+                    }
+                    t += Double(buf) / rate
+                }
+                return hits
+            }
+            func smear(_ t: Double, start: Double, dur: Double, amp: Float) -> Float {
+                guard t >= start && t < start + dur else { return 0 }
+                let local = t - start
+                let fade = min(0.008, dur / 4)
+                let env: Float
+                if local < fade { env = Float(local / fade) }
+                else if local > dur - fade { env = Float(max(0, (dur - local) / fade)) }
+                else { env = 1 }
+                return env * amp * Float(sin(2 * Double.pi * 1_000 * t))
+            }
+            _ = feed(from: 0.0, until: 0.8, paint: { _ in 0.001 })
+            let hits = feed(from: 0.8, until: 2.6, paint: { t in
+                0.001 + smear(t, start: 1.0, dur: 0.070, amp: 0.045) + smear(t, start: 2.0, dur: 0.070, amp: 0.045)
+            })
+            expect(hits.count == 2, "isolated 1 Hz 70 ms smear still onsets (not dropped as speech)", "n=\(hits.count) times=\(hits.map { String(format: "%.3f beep=%d", $0.timestampSeconds, $0.isBeepLike ? 1 : 0) })")
+            if hits.count >= 1 {
+                expect(hits[0].isBeepLike && hits[0].isPairable, "isolated 1 Hz detector emit is beep-like / pairable")
+            }
+            let e = SyncMeasurementEngine()
+            if hits.count >= 2 {
+                _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 1.0, luminance: 0.8, threshold: 0.1))
+                let a = e.ingestPulse(hits[0])
+                _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 2.0, luminance: 0.8, threshold: 0.1))
+                let b = e.ingestPulse(hits[1])
+                expect(a != nil && abs((a?.offsetMilliseconds ?? 999)) < 20, "isolated 1 Hz detector pulse pairs with FLASH", a.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
+                expect(b != nil && abs((b?.offsetMilliseconds ?? 999)) < 20, "second isolated 1 Hz detector pulse pairs", b.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
+            }
+        }
+
+        do {
+            // VU-aligned wall times with different unified times must not pair.
+            // Stamping the strip with wall-clock would put both in one column.
+            let e = SyncMeasurementEngine()
+            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 10.0, luminance: 0.95, threshold: 0.1))
+            let s = e.ingestPulse(.beepLike(timestampSeconds: 12.0, envelope: 0.80))
+            expect(s == nil, "unified 2 s apart must not PAIR (would look aligned on a wall-clock VU)")
+            expect(e.snapshot().validCount == 0, "wall-aligned / unified-mismatched events stay unpaired")
+
+            let h = MeterHistory()
+            h.appendLuma(t: 10.0, value: 0.95)
+            h.appendMic(t: 12.0, value: 0.80)
+            h.appendMark(t: 10.0, kind: .flash)
+            h.appendMark(t: 12.0, kind: .audioPulse)
+            let kinds = h.markKindsByColumn(now: 12.0, windowSeconds: 90, count: 90)
+            let flashCols = kinds.enumerated().compactMap { $0.element.contains(.flash) ? $0.offset : nil }
+            let pulseCols = kinds.enumerated().compactMap { $0.element.contains(.audioPulse) ? $0.offset : nil }
+            expect(!flashCols.isEmpty && !pulseCols.isEmpty, "unified-domain strip still shows FLASH and AUDIOPULSE")
+            if let fc = flashCols.first, let pc = pulseCols.first {
+                expect(abs(fc - pc) >= 1, "unified 2 s apart occupy different VU columns (not wall-clock collapsed)", "flashCol=\(fc) pulseCol=\(pc)")
+            }
+
+            // Same unified domain, +80 ms: pairs AND sits on nearby columns.
+            let e2 = SyncMeasurementEngine()
+            _ = e2.ingestFlash(VisualFlashEvent(timestampSeconds: 10.0, luminance: 0.95, threshold: 0.1))
+            let s2 = e2.ingestPulse(.beepLike(timestampSeconds: 10.080, envelope: 0.80))
+            expect(s2 != nil && abs(s2!.offsetMilliseconds - 80) < 0.5, "same unified domain +80 ms pairs")
+            let h2 = MeterHistory()
+            h2.appendLuma(t: 10.0, value: 0.95)
+            h2.appendMic(t: 10.080, value: 0.80)
+            h2.appendMark(t: 10.0, kind: .flash)
+            h2.appendMark(t: 10.080, kind: .audioPulse)
+            h2.appendMark(t: 10.080, kind: .pair)
+            let k2 = h2.markKindsByColumn(now: 11.0, windowSeconds: 5, count: 50).flatMap { $0 }
+            expect(k2.contains(.flash) && k2.contains(.audioPulse) && k2.contains(.pair), "EVT marks on unified time match ingest FLASH+AUDIOPULSE+PAIR")
+        }
+
         if failed == 0 {
             print("ALL HARNESS TESTS PASSED")
         } else {

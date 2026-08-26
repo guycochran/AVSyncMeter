@@ -188,19 +188,22 @@ final class MeasurementSession: ObservableObject {
             // Session-mapped PTS is already host time. Do not fit against
             // callback hostNow — that double map jitters the slope.
             let unified = self.captureClock.observe(stream: .video, ptsSeconds: pts, hostSeconds: pts)
-            var marks: [MeterHistory.MarkKind] = []
+            var marks: [(kind: MeterHistory.MarkKind, t: Double)] = []
             if let flash = self.flashDetector.processPixelBuffer(image, timestampSeconds: unified) {
-                marks.append(.flash)
                 if self.captureClock.acceptDetectedEvent(stream: .video) {
-                    if self.engine.ingestFlash(flash) != nil {
-                        marks.append(.pair)
+                    // EVT FLASH = engine ingest, not a VU envelope tick.
+                    if let sample = self.engine.ingestFlash(flash) {
+                        marks.append((.flash, flash.timestampSeconds))
+                        marks.append((.pair, sample.audioTimestampSeconds))
+                    } else {
+                        marks.append((.flash, flash.timestampSeconds))
                     }
                 } else {
                     self.engine.noteHeldForClock(flash: flash, pulse: nil)
                 }
             }
             let luma = self.flashDetector.lastLuminance
-            self.publishEngine(luminance: luma, marks: marks)
+            self.publishEngine(luminance: luma, sampleTime: unified, marks: marks)
         }
     }
 
@@ -211,23 +214,33 @@ final class MeasurementSession: ObservableObject {
         measureQueue.async { [weak self] in
             guard let self else { return }
             let unifiedStart = self.captureClock.observe(stream: .audio, ptsSeconds: pts, hostSeconds: pts)
-            var marks: [MeterHistory.MarkKind] = []
+            var marks: [(kind: MeterHistory.MarkKind, t: Double)] = []
             if let pulse = self.pulseDetector.processSampleBuffer(buffer, bufferStartOverride: unifiedStart) {
-                marks.append(.audioPulse)
                 if self.captureClock.acceptDetectedEvent(stream: .audio) {
-                    if self.engine.ingestPulse(pulse) != nil {
-                        marks.append(.pair)
+                    // EVT AUDIOPULSE = engine ingest (same unified time as pairing).
+                    // Detector-fire without ingest used to paint blue marks from
+                    // wall-clock while flashes expired unpaired 3 s later.
+                    if let sample = self.engine.ingestPulse(pulse) {
+                        marks.append((.audioPulse, pulse.timestampSeconds))
+                        marks.append((.pair, sample.audioTimestampSeconds))
+                    } else {
+                        marks.append((.audioPulse, pulse.timestampSeconds))
                     }
                 } else {
                     self.engine.noteHeldForClock(flash: nil, pulse: pulse)
                 }
             }
             let level = self.pulseDetector.lastEnvelope
-            self.publishEngine(audioLevel: level, marks: marks)
+            self.publishEngine(audioLevel: level, sampleTime: unifiedStart, marks: marks)
         }
     }
 
-    private func publishEngine(luminance: Double? = nil, audioLevel: Double? = nil, marks: [MeterHistory.MarkKind] = []) {
+    private func publishEngine(
+        luminance: Double? = nil,
+        audioLevel: Double? = nil,
+        sampleTime: Double? = nil,
+        marks: [(kind: MeterHistory.MarkKind, t: Double)] = []
+    ) {
         let snap = engine.snapshot()
         let last = engine.statistics.rawSamples.last
         let logs = engine.diagnostics
@@ -237,17 +250,19 @@ final class MeasurementSession: ObservableObject {
             self.lastSample = last
             self.diagnostics = logs
             self.clockSnapshot = clock
-            let hostT = CFAbsoluteTimeGetCurrent()
-            if let luminance {
+            // CaptureClock unified seconds — the same domain pairing uses.
+            // Wall-clock (CFAbsoluteTimeGetCurrent) made 1 Hz LUMA+MIC look
+            // aligned on the strip while |unified dt| > 400 ms never paired.
+            if let luminance, let sampleTime {
                 self.liveLuminance = luminance
-                self.meterHistory.appendLuma(t: hostT, value: luminance)
+                self.meterHistory.appendLuma(t: sampleTime, value: luminance)
             }
-            if let audioLevel {
+            if let audioLevel, let sampleTime {
                 self.liveAudioLevel = audioLevel
-                self.meterHistory.appendMic(t: hostT, value: MeterHistory.displayMicLevel(audioLevel))
+                self.meterHistory.appendMic(t: sampleTime, value: MeterHistory.displayMicLevel(audioLevel))
             }
-            for kind in marks {
-                self.meterHistory.appendMark(t: hostT, kind: kind)
+            for mark in marks {
+                self.meterHistory.appendMark(t: mark.t, kind: mark.kind)
             }
             if !clock.settled && self.runState != .idle && snap.validCount == 0 {
                 self.statusNote = "CLOCK SETTLING"

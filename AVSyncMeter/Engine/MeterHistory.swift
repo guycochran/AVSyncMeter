@@ -2,6 +2,10 @@ import Foundation
 
 /// Rolling LUMA / MIC levels plus FLASH / AUDIOPULSE / PAIR marks for the measure-screen history strip.
 /// Feed from the same live luma/mic as the needles — never from valid pairs.
+/// Timestamps are CaptureClock unified seconds (the same domain pairing uses).
+/// Do not stamp with wall-clock (`CFAbsoluteTimeGetCurrent`): that makes a
+/// 1 Hz flash and pulse look aligned on the strip while |unified dt| > 400 ms
+/// never pairs. EVT marks follow engine ingest, not a VU envelope threshold.
 /// Display only — not a measurement timestamp and not part of pairing.
 final class MeterHistory {
     static let minWindowSeconds: Double = 1

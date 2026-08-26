@@ -312,7 +312,10 @@ final class AudioPulseDetector {
 
     /// Commit an isolated pulse as beep-like, or drop sustained voice.
     /// A ~1 Hz PA-smeared beep (15–80 ms, quiet after) must event even if it
-    /// is longer than 20 ms or low amplitude. Ongoing energy is still voice.
+    /// is longer than 20 ms or low amplitude — isolated 1 Hz is not speech.
+    /// Speech is overlapping/ongoing energy (no quiet gap), not a once-per-
+    /// second spike. A sharp 1 kHz smear may run a bit past 85 ms and still
+    /// event; a dull 100 ms syllable that returns to quiet does not.
     private func finishCandidateIfReady(now: Double) -> AudioPulseEvent? {
         guard let c = candidate else { return nil }
         let duration = max(0, c.lastLoudSeconds - c.onsetSeconds)
@@ -320,23 +323,38 @@ final class AudioPulseDetector {
         let quietFor = now - c.lastLoudSeconds
         let maxDur = configuration.beepMaxDurationSeconds
 
-        if quietFor >= 0.004 && duration <= maxDur && duration >= 0.001 && seen >= duration {
+        if quietFor >= 0.004 && duration >= 0.001 && seen >= duration {
+            // Isolated: energy returned to quiet. Do not drop a 1 Hz house
+            // beep as speech just because smear > 20 ms or the old isBeepLike
+            // gate would have been false.
+            let isolatedBeep = duration <= maxDur || (duration <= 0.20 && c.sharpness >= 0.40)
+            if isolatedBeep {
+                candidate = nil
+                ignoreSustainedUntilQuiet = false
+                maskUntilSeconds = c.onsetSeconds + configuration.maskSeconds
+                awaitingRearm = true
+                return AudioPulseEvent(
+                    timestampSeconds: c.onsetSeconds,
+                    envelope: c.peakEnvelope,
+                    threshold: c.threshold,
+                    durationSeconds: duration,
+                    sharpness: c.sharpness,
+                    isBeepLike: true
+                )
+            }
+            // Isolated but voice-like (syllable then quiet). Not a 1 Hz beep.
             candidate = nil
-            ignoreSustainedUntilQuiet = false
-            maskUntilSeconds = c.onsetSeconds + configuration.maskSeconds
-            awaitingRearm = true
-            return AudioPulseEvent(
-                timestampSeconds: c.onsetSeconds,
-                envelope: c.peakEnvelope,
-                threshold: c.threshold,
-                durationSeconds: duration,
-                sharpness: c.sharpness,
-                isBeepLike: true
-            )
+            ignoreSustainedUntilQuiet = true
+            return nil
         }
-        if seen >= maxDur + 0.012 && duration > maxDur {
-            // Sustained voice/walkie: do not emit, do not 400 ms-mask (a 1 kHz
-            // beep overlay still has to win). Deaf to the next syllable until quiet.
+        if seen >= maxDur + 0.012 && duration > maxDur && quietFor < 0.004 {
+            // Sustained voice/walkie: still loud, no isolated quiet gap.
+            // Do not 400 ms-mask (a 1 kHz beep overlay still has to win).
+            candidate = nil
+            ignoreSustainedUntilQuiet = true
+            return nil
+        }
+        if seen >= 0.20 + 0.012 && duration > 0.20 && quietFor < 0.004 {
             candidate = nil
             ignoreSustainedUntilQuiet = true
             return nil

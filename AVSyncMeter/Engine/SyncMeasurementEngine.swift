@@ -9,12 +9,13 @@ import Foundation
 /// Pairing: unpaired flashes stay in a short queue (not keep-latest of one).
 /// A 60 fps measure queue can ingest the next 1 Hz flash before a beep-like
 /// pulse whose onset is still in window of the previous flash — dropping that
-/// flash as extra was zero pairs with FLASH+AUDIOPULSE marks. Latest beep-like
-/// pulse still wins; voice/chatter is never queued. Pair if |audio − video|
+/// flash as extra was zero pairs with FLASH+AUDIOPULSE marks. Latest pairable
+/// pulse still wins; overlapping speech is never queued. Pair if |audio − video|
 /// ≤ maxPairOffsetSeconds (default ±400 ms, enough for monitor+PA+Mitti and a
 /// +164 ms step, tight enough that a 220–350 ms ring-down replica cannot steal
-/// the next 1 Hz flash). Voice-like pulses never pair. pairingWindowSeconds is
-/// how long a lone event waits.
+/// the next 1 Hz flash). Isolated 1 Hz (smear ≤ 85 ms, quiet after) pairs even
+/// if the old isBeepLike gate was false. Overlapping/ongoing speech never pairs.
+/// pairingWindowSeconds is how long a lone event waits.
 ///
 /// Sign: offsetMilliseconds = (audio - video) * 1000. See SyncSignConvention.
 final class SyncMeasurementEngine {
@@ -97,14 +98,15 @@ final class SyncMeasurementEngine {
             audioThreshold: event.threshold,
             captureFPS: nil
         ))
-        if !event.isBeepLike {
+        if !event.isPairable {
             // Extra voice in the window must not steal. Never queue chatter.
+            // Isolated 1 Hz smear still isPairable even if isBeepLike was false.
             rejectExtraPulse(event)
             expireStale(now: event.timestampSeconds)
             return pairReady()
         }
         if let old = pendingPulse {
-            // Latest beep-like wins; do not queue a second pulse.
+            // Latest pairable pulse wins; do not queue a second pulse.
             rejectExtraPulse(old)
         }
         pendingPulse = event
@@ -135,7 +137,7 @@ final class SyncMeasurementEngine {
 
     private func pairHeadsIfReady() -> SyncSample? {
         guard let pulse = pendingPulse else { return nil }
-        if !pulse.isBeepLike {
+        if !pulse.isPairable {
             pendingPulse = nil
             rejectExtraPulse(pulse)
             return nil

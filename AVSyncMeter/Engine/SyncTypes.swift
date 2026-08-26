@@ -52,6 +52,15 @@ struct AudioPulseEvent: Equatable {
     /// test pulses keep pairing like a house beep.
     var isBeepLike: Bool = true
 
+    /// Isolated 1 Hz house beep / PA smear must pair even when the old
+    /// isBeepLike gate was false (smeared, dull, longer than 20 ms).
+    /// Speech is overlapping/ongoing energy (duration well above an 85 ms
+    /// smear), not a once-per-second spike.
+    var isPairable: Bool {
+        if isBeepLike { return true }
+        return durationSeconds >= 0.001 && durationSeconds <= 0.085
+    }
+
     static func beepLike(timestampSeconds: Double, envelope: Double = 0.85, threshold: Double = 0.1) -> AudioPulseEvent {
         AudioPulseEvent(
             timestampSeconds: timestampSeconds,

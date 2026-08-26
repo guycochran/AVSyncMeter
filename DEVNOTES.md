@@ -166,3 +166,19 @@ Build 16 keeps unpaired flashes until they pair or age out; pairs the nearest fl
 HostHarness: 1 Hz FLASH + delayed 1 Hz AUDIOPULSE inside ±400 ms must PAIR (fails on keep-latest); in-order 1 Hz still pairs; speech still rejected; smeared 15–80 ms still pairs; constant offset / 30 vs 29.97 still hold.
 
 Install with devicectl only — do not launch. No TestFlight.
+
+
+## Build 17 (isolated 1 Hz must PAIR; EVT = ingest; unified VU)
+
+On-device 0.1.2 (16) 17:22 PT IDLE: VU 1 Hz LUMA green + MIC blue spikes aligned; EVT green FLASH + blue AUDIOPULSE, zero yellow PAIR; DIAG FLASH then REJECTEDUNPAIRED ~3 s later (maxQueueAge); no AUDIOPULSE / REJECTEDEXTRAPULSE in the crop. START above fold. Capture still 59.99 integer NTSC lock MISS (not this ticket).
+
+Two live bugs in (16):
+
+1. `ingestPulse` dropped `!isBeepLike` without queueing. Isolated 1 Hz MIC next to a FLASH is not speech — speech is overlapping/ongoing energy. A smeared/dull 1 Hz pulse the old gate marked `isBeepLike = false` never sat in `pendingPulse`, so flashes aged out unpaired.
+2. VU luma/mic and EVT marks were stamped with `CFAbsoluteTimeGetCurrent()` (wall-clock) while pairing uses CaptureClock unified seconds. Wall-clock makes 1 Hz spikes look aligned on the strip and never pair if `|unified dt| > 400 ms`. EVT blue was also painted on detector-fire / wall-clock, not engine ingest.
+
+Build 17: isolated 1 Hz (quiet after, smear ≤ 85 ms, or sharp smear ≤ 200 ms) is beep-like and pairable. Engine pairs `isPairable` (isBeepLike OR isolated ≤ 85 ms smear) even if the old isBeepLike gate was false. Overlapping/ongoing speech still rejected. EVT FLASH/AUDIOPULSE/PAIR marks only on engine ingest, stamped with the event's unified time. VU samples use CaptureClock unified time, same domain as pairing. Do not bump detector gain. Do not revert (14) mic-path / (16) flash queue. Keep smeared 15–80 ms PA beeps, 90 s pair-independent VU, START pinned, honest NTSC.
+
+HostHarness: 1 Hz flash + pulse +80 ms pairs even if smear/isBeepLike was false under the old gate; isolated 1 Hz next to FLASH pairs; overlapping speech still rejected; EVT/ingest marks consistent; VU-aligned wall times with different unified times do not pair.
+
+Install with devicectl only — do not launch. No TestFlight.
