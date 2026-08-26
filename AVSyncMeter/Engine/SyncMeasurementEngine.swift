@@ -74,6 +74,9 @@ final class SyncMeasurementEngine {
         if pendingFlashes.count > 1 {
             pendingFlashes.sort { $0.timestampSeconds < $1.timestampSeconds }
         }
+        while pendingFlashes.count > 8 {
+            rejectExtraFlash(pendingFlashes.removeFirst())
+        }
         expireStale(now: event.timestampSeconds)
         return pairReady()
     }
@@ -248,7 +251,7 @@ final class SyncMeasurementEngine {
         appendDiagnostic(DiagnosticEvent(
             id: UUID(),
             kind: .rejectedExtraFlash,
-            message: String(format: "Extra flash dropped (keep latest) v %.4f", flash.timestampSeconds),
+            message: String(format: "Extra flash dropped (same-beat) v %.4f", flash.timestampSeconds),
             videoPTS: flash.timestampSeconds,
             audioPTS: nil,
             offsetMilliseconds: nil,

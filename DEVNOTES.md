@@ -161,7 +161,7 @@ HostHarness: default window 90 s (clamp 1–90); live luma/mic recorded with zer
 
 On-device 0.1.2 (15): FLASH 1 Hz, AUDIOPULSE less often, REJECTEDEXTRAFLASH keep-latest every ~1 s, MEAS 0, no PAIR. Both detectors fired. Mic was not deaf. Keep-latest of one pending flash dropped the flash that a later-ingested beep-like pulse (60 fps measure-queue lag) still sat inside ±400 ms of.
 
-Build 16 keeps unpaired flashes until they pair or age out; pairs the nearest flash inside the window; latest beep-like pulse still wins; voice still never queues. START/STOP/RESET are pinned on screen. MIC needle/strip display gain is envelope × 16 (not a detector threshold). NTSC lock MISS stays honest. Do not change Guy's 65/70/35/±400.
+Build 16 keeps unpaired flashes until they pair or age out; pairs the nearest flash inside the window; latest beep-like pulse still wins; voice still never queues. START/STOP/RESET are pinned on screen. MIC needle/strip display gain is envelope × 16 (not a detector threshold). Footer is 29.97/59.94 NTSC or “NTSC lock MISS” — a short FPS window must not flap 59.94 NTSC into silent 60.00 integer. Do not change Guy's 65/70/35/±400.
 
 HostHarness: 1 Hz FLASH + delayed 1 Hz AUDIOPULSE inside ±400 ms must PAIR (fails on keep-latest); in-order 1 Hz still pairs; speech still rejected; smeared 15–80 ms still pairs; constant offset / 30 vs 29.97 still hold.
 

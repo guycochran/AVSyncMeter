@@ -54,31 +54,53 @@ enum FrameRate: String, CaseIterable, Identifiable, Codable, Hashable {
         (milliseconds / 1_000.0) * framesPerSecond
     }
 
+    static let ntsc24 = 24_000.0 / 1_001.0
+    static let ntsc30 = 30_000.0 / 1_001.0
+    static let ntsc60 = 60_000.0 / 1_001.0
+
     /// Classify an observed capture rate as NTSC 1001-family vs integer 24/25/30/50/60.
     /// Nearest-neighbour so 29.970 and 30.000 stay distinct (they are only 0.03 fps apart).
     static func captureFamily(observedFPS: Double) -> String {
-        let candidates: [(Double, String)] = [
-            (24_000.0 / 1_001.0, "NTSC"),
-            (30_000.0 / 1_001.0, "NTSC"),
-            (60_000.0 / 1_001.0, "NTSC"),
-            (24.0, "integer"),
-            (25.0, "integer"),
-            (30.0, "integer"),
-            (50.0, "integer"),
-            (60.0, "integer"),
-        ]
+        captureFamily(observedFPS: observedFPS, picker: nil)
+    }
+
+    /// Picker-aware: a 59.94 lock must not flap to "60.00 integer NTSC lock MISS"
+    /// when a short FPS window reads 59.98. True 30.000/60.000 with an NTSC picker
+    /// is still MISS. Never silently print integer 30/60 for an NTSC picker.
+    static func captureFamily(observedFPS: Double, picker: FrameRate?) -> String {
         guard observedFPS.isFinite, observedFPS > 1 else { return "—" }
-        let best = candidates.min(by: { abs($0.0 - observedFPS) < abs($1.0 - observedFPS) })!
-        if abs(best.0 - observedFPS) > 1.0 {
-            return abs(observedFPS - observedFPS.rounded()) < 0.05 ? "integer" : "NTSC"
+        let ntscRates = [ntsc24, ntsc30, ntsc60]
+        let integerRates = [24.0, 25.0, 30.0, 50.0, 60.0]
+        let nearestNTSC = ntscRates.min(by: { abs($0 - observedFPS) < abs($1 - observedFPS) })!
+        let nearestInt = integerRates.min(by: { abs($0 - observedFPS) < abs($1 - observedFPS) })!
+        let dN = abs(nearestNTSC - observedFPS)
+        let dI = abs(nearestInt - observedFPS)
+
+        if picker?.isNTSCFamily == true {
+            // True integer lock (within 0.012 of 30/60) stays MISS.
+            // Jitter around 59.94 (e.g. 59.98) must stay NTSC, not 60.00 MISS.
+            if dI <= 0.012 && dI < dN { return "integer" }
+            if dN <= 0.08 { return "NTSC" }
+            return dN <= dI ? "NTSC" : "integer"
         }
-        return best.1
+
+        if dN <= dI && dN <= 1.0 { return "NTSC" }
+        if dI <= 1.0 { return "integer" }
+        return abs(observedFPS - observedFPS.rounded()) < 0.05 ? "integer" : "NTSC"
+    }
+
+    /// Canonical 23.976 / 29.97 / 59.94 when classified NTSC so the footer
+    /// never prints a jittery 59.98 that looks like integer 60.
+    static func canonicalDisplayedFPS(observedFPS: Double, family: String) -> Double {
+        guard family == "NTSC" else { return observedFPS }
+        let ntsc = [ntsc24, ntsc30, ntsc60]
+        return ntsc.min(by: { abs($0 - observedFPS) < abs($1 - observedFPS) })!
     }
 
     /// Footer: `Capture 29.97 fps  NTSC  (picker 29.97)`. %.1f hid 29.970 as 30.0.
     /// Picker 29.97/59.94 with integer capture is a lock miss — never silent 1/30.
     static func captureFooter(observedFPS: Double, picker: FrameRate) -> String {
-        let family = captureFamily(observedFPS: observedFPS)
+        let family = captureFamily(observedFPS: observedFPS, picker: picker)
         if picker.isNTSCFamily && family == "integer" {
             return String(
                 format: "Capture %.2f fps  integer  NTSC lock MISS  (picker %@)",
@@ -86,7 +108,8 @@ enum FrameRate: String, CaseIterable, Identifiable, Codable, Hashable {
                 picker.displayName
             )
         }
-        return String(format: "Capture %.2f fps  %@  (picker %@)", observedFPS, family, picker.displayName)
+        let shown = canonicalDisplayedFPS(observedFPS: observedFPS, family: family)
+        return String(format: "Capture %.2f fps  %@  (picker %@)", shown, family, picker.displayName)
     }
 
     /// Capture duration matching this picker. Prefer 60_000/1001 when the picker

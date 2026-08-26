@@ -988,6 +988,17 @@ struct HostHarness {
             expect(FrameRate.captureFamily(observedFPS: 30.0) == "integer", "classify 30.00 as integer")
             expect(FrameRate.captureFamily(observedFPS: 60_000.0 / 1_001.0) == "NTSC", "classify 59.94 as NTSC")
             expect(FrameRate.captureFamily(observedFPS: 60.0) == "integer", "classify 60.00 as integer")
+            // 16:52 59.94 NTSC vs 16:55 IDLE 60.00 integer MISS — do not silently flap.
+            let jitter5994 = FrameRate.captureFooter(observedFPS: 59.98, picker: .fps5994)
+            expect(jitter5994.contains("59.94") && jitter5994.contains("NTSC") && !jitter5994.contains("MISS"), "59.98 with picker 59.94 stays 59.94 NTSC (not 60.00 MISS)", jitter5994)
+            expect(FrameRate.captureFamily(observedFPS: 59.98, picker: .fps5994) == "NTSC", "picker 59.94: 59.98 is NTSC not integer")
+            let true60 = FrameRate.captureFooter(observedFPS: 60.0, picker: .fps5994)
+            expect(true60.contains("60.00") && true60.contains("MISS"), "true 60.00 with picker 59.94 is NTSC lock MISS", true60)
+            let idleFlap = FrameRate.captureFooter(observedFPS: 60.0, picker: .fps2997)
+            expect(idleFlap.contains("MISS") && idleFlap.contains("integer"), "true 60.00 with picker 29.97 is MISS, never silent integer", idleFlap)
+            let ntsc5994 = FrameRate.captureFooter(observedFPS: 60_000.0 / 1_001.0, picker: .fps5994)
+            expect(ntsc5994.contains("59.94") && ntsc5994.contains("NTSC") && !ntsc5994.contains("MISS"), "59.94 lock footer is 59.94 NTSC", ntsc5994)
+            expect(!ntsc5994.contains("60.00") && !ntsc5994.contains("60.0 fps"), "59.94 footer never prints integer 60", ntsc5994)
         }
 
 

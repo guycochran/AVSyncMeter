@@ -46,7 +46,11 @@ final class CaptureManager: NSObject, ObservableObject {
     var onVideoBuffer: ((CMSampleBuffer, AVCaptureConnection) -> Void)?
     var onAudioBuffer: ((CMSampleBuffer, AVCaptureConnection) -> Void)?
 
+    /// Sliding ~2 s of video PTS. 16 frames (~250 ms at 60 fps) jittered 59.94
+    /// NTSC into 60.00 integer MISS on IDLE. Do not publish a short rundown tail.
     private var videoFrameTimes: [Double] = []
+    private let fpsWindowSeconds: Double = 2.0
+    private let fpsMinFrames = 45
 
     func requestPermissionsAndStart() {
         Task { @MainActor in
@@ -98,6 +102,7 @@ final class CaptureManager: NSObject, ObservableObject {
             if self.session.isRunning {
                 self.session.stopRunning()
             }
+            self.videoFrameTimes.removeAll(keepingCapacity: true)
             DispatchQueue.main.async {
                 self.isRunning = false
             }
@@ -371,13 +376,16 @@ extension CaptureManager: AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptur
             let pts = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
             if pts.isFinite {
                 videoFrameTimes.append(pts)
-                if videoFrameTimes.count >= 16 {
+                let cutoff = pts - fpsWindowSeconds
+                if let idx = videoFrameTimes.firstIndex(where: { $0 >= cutoff }), idx > 0 {
+                    videoFrameTimes.removeFirst(idx)
+                }
+                if videoFrameTimes.count >= fpsMinFrames {
                     let span = videoFrameTimes.last! - videoFrameTimes.first!
-                    if span > 0 {
+                    if span >= 1.0 {
                         let fps = Double(videoFrameTimes.count - 1) / span
                         DispatchQueue.main.async { self.observedVideoFPS = fps }
                     }
-                    videoFrameTimes.removeAll(keepingCapacity: true)
                 }
             }
             onVideoBuffer?(sampleBuffer, connection)
