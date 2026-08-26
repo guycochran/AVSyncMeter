@@ -214,3 +214,14 @@ Advice: AUDIO EARLY / increase audio delay by X. ZERO / SET TRUE / CLEAR, sign, 
 HostHarness: DROP PA-at-T−80 + embed-at-T+0 as product proof. KEEP Harkwood 67 ms / 1001 ms PAIR, tone-on-onset 67/200/300/400, 2-frame first-rising one cluster, overlapping speech rejected.
 
 Do not install. Do not launch. No TestFlight. USB likely empty — do not wait. Do not call Guy down.
+
+
+## Build 20 (pairing window 1.00 s; 500 ms speakers test can show 500)
+
+Guy 22:28 local Mac test: Mitti Audio Output = Mac speakers, 500 ms audio-only, meter still +11 STABLE with 8 pairs. 500 ms is outside (19) ±400 ms pair window — a true 500-only path would fail to PAIR, not read +11. The +11 pairs mean an undelayed beep was heard. Upstairs +200 was INSIDE ±400 and did not move — still routing, not the cap.
+
+(20) widens `pairingWindowSeconds` / `maxPairOffsetSeconds` default to 1.00 s (engine + AppSettings + Settings slider footnote). Legacy stored 0.40 migrates to 1.00. Isolated 66.7 ms 3 kHz pairs at T+0/80/200/300/500/800/T−200/T−500 after the same settle+freeze as the app. Overlapping speech still rejected, including ±500 ms (must not steal the beep median). Detector 400 ms mask still swallows ring-down. First-rising flash, split-path recipe, latest-wins pulse, sign, median, ZERO/SET TRUE/CLEAR, cal 0 unchanged. No SyncCore. No CaptureClock deletion.
+
+(20) does **not** claim to fix upstairs +200 ms. It only makes a 500 ms Mac test able to show 500 if the delay is really in the speakers.
+
+Do not install. Do not launch. No TestFlight.

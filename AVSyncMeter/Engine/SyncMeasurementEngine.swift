@@ -11,19 +11,19 @@ import Foundation
 /// pulse whose onset is still in window of the previous flash — dropping that
 /// flash as extra was zero pairs with FLASH+AUDIOPULSE marks. Latest pairable
 /// pulse still wins; overlapping speech is never queued. Pair if |audio − video|
-/// ≤ maxPairOffsetSeconds (default ±400 ms, enough for monitor+PA+Mitti and a
-/// +164 ms step, tight enough that a 220–350 ms ring-down replica cannot steal
-/// the next 1001 ms flash). Isolated house hits pair on onset even if the old
+/// ≤ maxPairOffsetSeconds (default ±1.00 s, so LED processor + Mitti delay fit; a
+/// true 500 ms speakers-only delay must PAIR at ~500, not fail-closed onto
+/// an undelayed residual). Isolated house hits pair on onset even if the old
 /// isBeepLike duration gate was false (Harkwood 1001 ms / 66.7 ms 3 kHz,
-/// or a 200–400 ms periodic tone). Overlapping/ongoing speech never pairs.
-/// pairingWindowSeconds is how long a lone event waits.
+/// or a 200–400 ms periodic tone). Overlapping/ongoing speech never pairs, including ±500 ms inside the widened window.
+/// pairingWindowSeconds is how long a lone event waits. Detector 400 ms mask still swallows ring-down.
 ///
 /// Sign: offsetMilliseconds = (audio - video) * 1000. See SyncSignConvention.
 final class SyncMeasurementEngine {
     struct Configuration {
-        var pairingWindowSeconds: Double = 0.40
+        var pairingWindowSeconds: Double = 1.00
         /// Accept a pair only if |audio − video| is inside this window.
-        var maxPairOffsetSeconds: Double = 0.40
+        var maxPairOffsetSeconds: Double = 1.00
         var calibrationOffsetMilliseconds: Double = 0
         var stabilityThresholdMilliseconds: Double = 8
         var outlierMADMultiplier: Double = 3.5

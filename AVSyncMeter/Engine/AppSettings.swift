@@ -23,7 +23,7 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(audioSensitivity, forKey: Keys.audioSensitivity) }
     }
 
-    /// Pairing search window, seconds. Default ±400 ms (monitor+PA+Mitti).
+    /// Pairing search window, seconds. Default ±1.00 s (LED processor + Mitti delay).
     @Published var pairingWindowSeconds: Double {
         didSet { defaults.set(pairingWindowSeconds, forKey: Keys.pairingWindow) }
     }
@@ -94,7 +94,12 @@ final class AppSettings: ObservableObject {
         regionFraction = defaults.object(forKey: Keys.regionFraction) as? Double ?? 0.35
         flashSensitivity = defaults.object(forKey: Keys.flashSensitivity) as? Double ?? 0.65
         audioSensitivity = defaults.object(forKey: Keys.audioSensitivity) as? Double ?? 0.65
-        pairingWindowSeconds = defaults.object(forKey: Keys.pairingWindow) as? Double ?? 0.40
+        let storedPair = defaults.object(forKey: Keys.pairingWindow) as? Double
+        if storedPair == nil || abs((storedPair ?? 0) - 0.40) < 1e-9 {
+            pairingWindowSeconds = 1.00
+        } else {
+            pairingWindowSeconds = storedPair!
+        }
         if defaults.object(forKey: Keys.manualVisual) != nil {
             manualVisualThreshold = defaults.double(forKey: Keys.manualVisual)
         } else {

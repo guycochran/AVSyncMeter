@@ -358,11 +358,11 @@ struct HostHarness {
         }
 
         do {
-            // Extra 300 ms replica expires unpaired instead of stealing the next flash.
+            // Extra 300 ms replica expires vs a flash >1.00 s away (detector masks live ring-down).
             let e = engine()
             _ = pair(e, tVideo: 1.0, tAudio: 1.006)
             _ = e.ingestPulse(AudioPulseEvent(timestampSeconds: 1.300, envelope: 0.12, threshold: 0.05))
-            _ = pair(e, tVideo: 2.0, tAudio: 2.006)
+            _ = pair(e, tVideo: 3.0, tAudio: 3.006)
             let snap = e.snapshot()
             expect(snap.validCount == 2, "replica does not steal next flash", "n=\(snap.validCount)")
             expect(snap.rejectedCount >= 1, "replica expires unpaired")
@@ -905,28 +905,33 @@ struct HostHarness {
         }
 
 
-        // MARK: - Build 11: 400 ms pair window, beep PCM, WALK span, fps footer
+        // MARK: - Build 11: pair window, beep PCM, WALK span, fps footer
 
         do {
-            expect(abs(SyncMeasurementEngine.Configuration().maxPairOffsetSeconds - 0.40) < 1e-9, "pair window default is 400 ms")
+            expect(abs(SyncMeasurementEngine.Configuration().maxPairOffsetSeconds - 1.00) < 1e-9, "pair window default is 1.00 s")
+            expect(abs(SyncMeasurementEngine.Configuration().pairingWindowSeconds - 1.00) < 1e-9, "pairingWindow default is 1.00 s")
             let e = SyncMeasurementEngine()
             let s = pair(e, tVideo: 1.0, tAudio: 1.164)
-            expect(s != nil && abs(s!.offsetMilliseconds - 164) < 0.001, "+164 ms still pairs inside 400 ms window")
+            expect(s != nil && abs(s!.offsetMilliseconds - 164) < 0.001, "+164 ms still pairs inside 1.00 s window")
+            let late = pair(e, tVideo: 5.0, tAudio: 5.500)
+            expect(late != nil && abs(late!.offsetMilliseconds - 500) < 0.001, "+500 ms pairs inside 1.00 s (would fail at +/-400 ms)")
+            let early = pair(e, tVideo: 9.0, tAudio: 8.200)
+            expect(early != nil && abs(early!.offsetMilliseconds + 800) < 0.001, "-800 ms pairs inside 1.00 s")
         }
 
         do {
-            // Ring-down 220–350 ms must expire unpaired vs the next 1 Hz flash.
+            // Ring-down 220-350 ms: detector 400 ms-masks live. Engine replica vs flash >1.00 s away still expires.
             for replicaDelay in [0.220, 0.280, 0.350] {
                 let e = SyncMeasurementEngine()
                 _ = pair(e, tVideo: 1.0, tAudio: 1.006)
                 _ = e.ingestPulse(AudioPulseEvent(timestampSeconds: 1.0 + replicaDelay, envelope: 0.12, threshold: 0.05))
-                _ = pair(e, tVideo: 2.0, tAudio: 2.006)
+                _ = pair(e, tVideo: 3.0, tAudio: 3.006)
                 let snap = e.snapshot()
                 let ms = Int(replicaDelay * 1000)
-                expect(snap.validCount == 2, "400 ms window: \(ms) ms replica does not steal next flash", "n=\(snap.validCount)")
-                expect(snap.rejectedCount >= 1, "400 ms window: \(ms) ms replica expires unpaired")
+                expect(snap.validCount == 2, "1.00 s window: \(ms) ms replica expires vs flash >1 s away", "n=\(snap.validCount)")
+                expect(snap.rejectedCount >= 1, "1.00 s window: \(ms) ms replica expires unpaired")
                 let offsets = snap.recentValidSamples.map(\.offsetMilliseconds)
-                expect(offsets.allSatisfy { abs($0 - 6) < 0.5 }, "400 ms window: pairs stay ~+6 ms after \(ms) ms replica", "\(offsets)")
+                expect(offsets.allSatisfy { abs($0 - 6) < 0.5 }, "1.00 s window: pairs stay ~+6 ms after \(ms) ms replica", "\(offsets)")
             }
         }
 
@@ -1201,7 +1206,7 @@ struct HostHarness {
         }
 
         do {
-            // +164 / +200 house delay still pairs inside 400 ms after stage-noise path.
+            // +164 / +200 house delay still pairs inside 1.00 s after stage-noise path.
             let e = SyncMeasurementEngine()
             let a = pair(e, tVideo: 1.0, tAudio: 1.164)
             let b = pair(e, tVideo: 2.0, tAudio: 2.200)
@@ -1667,7 +1672,7 @@ struct HostHarness {
 
         do {
             // Live 60 fps measure queue: next 1 Hz flash is ingested before the
-            // beep-like pulse whose onset is still inside ±400 ms of the previous
+            // beep-like pulse whose onset is still inside the pairing window of the previous
             // flash. Keep-latest of one pending flash dropped that match → MEAS 0
             // with FLASH+AUDIOPULSE marks and REJECTEDEXTRAFLASH every ~1 s.
             let e = SyncMeasurementEngine()
@@ -1683,7 +1688,7 @@ struct HostHarness {
             }
             if e.ingestPulse(.beepLike(timestampSeconds: 7.080)) != nil { paired += 1 }
             let snap = e.snapshot()
-            expect(snap.validCount == 8, "1 Hz FLASH + delayed 1 Hz AUDIOPULSE within ±400 ms must PAIR (not zero pairs)", "valid=\(snap.validCount) paired=\(paired) rejected=\(snap.rejectedCount)")
+            expect(snap.validCount == 8, "1 Hz FLASH + delayed 1 Hz AUDIOPULSE within window must PAIR (not zero pairs)", "valid=\(snap.validCount) paired=\(paired) rejected=\(snap.rejectedCount)")
             expect(abs(snap.medianMilliseconds - 80) < 1.0, "delayed-pulse pairs stay ~+80 ms", String(format: "med %.3f", snap.medianMilliseconds))
             let kinds = Set(e.diagnostics.map(\.kind))
             expect(kinds.contains(.flash) && kinds.contains(.audioPulse) && kinds.contains(.paired), "FLASH+AUDIOPULSE ingest produces PAIR diagnostics", "\(kinds)")
@@ -2237,6 +2242,154 @@ struct HostHarness {
             expect(recipe.contains("AUDIO EARLY") && recipe.contains("Mitti Audio Output"), "recipe: type AUDIO EARLY into Mitti", recipe)
             expect(recipe.contains("Audio is always fast."), "recipe: audio is always fast")
             expect(!recipe.lowercased().contains("embed"), "recipe has no HDMI-embed language", recipe)
+        }
+
+
+        // MARK: - Build 20: pairingWindow / maxPairOffset 1.00 s
+        // (20) does NOT fix upstairs +200 ms. That was inside +/-400 and did not
+        // move -- still routing, not the cap. This only makes a 500 ms Mac
+        // speakers test ABLE to show 500 if the delay is really in the speakers.
+
+        // AppSettings default / legacy 0.40 migration is in AppSettings.swift
+        // (not compiled into this macOS runner; engine Configuration is the harness default).
+
+        do {
+            // Same settle+freeze as the app, THEN isolated 66.7 ms 3 kHz vs flash at T.
+            let clock = CaptureClock()
+            warmupClock(clock, seconds: 3.0)
+            expect(clock.snapshot().settled && clock.allowsPublishedPairs, "offset table: clock settled+frozen before events")
+            // App drops the first two detector events per stream after the gate.
+            expect(!clock.acceptDetectedEvent(stream: .video), "offset table: drop video 1 after settle")
+            expect(!clock.acceptDetectedEvent(stream: .video), "offset table: drop video 2 after settle")
+            expect(!clock.acceptDetectedEvent(stream: .audio), "offset table: drop audio 1 after settle")
+            expect(!clock.acceptDetectedEvent(stream: .audio), "offset table: drop audio 2 after settle")
+
+            let offsetsMs: [Double] = [0, 80, 200, 300, 500, 800, -200, -500]
+            print("OFFSET TABLE after settle+freeze (66.7 ms 3 kHz)")
+            print("  label       expected    measured  result")
+            for (i, wantMs) in offsetsMs.enumerated() {
+                let T = 8.0 + Double(i) * 4.0
+                let wantSec = wantMs / 1000.0
+                var tV = T - 1.2
+                while tV <= T + 1.2 {
+                    _ = clock.observe(stream: .video, ptsSeconds: tV, hostSeconds: tV)
+                    tV += 1.0 / 60.0
+                }
+                var tA = T - 1.2
+                while tA <= T + 1.2 {
+                    _ = clock.observe(stream: .audio, ptsSeconds: tA, hostSeconds: tA)
+                    tA += 0.01
+                }
+
+                let flashDet = VideoFlashDetector()
+                var flash: VisualFlashEvent?
+                let fps = 60.0
+                var t = T - 0.55
+                while t < T + 0.20 {
+                    let luma: Double = (t >= T && t < T + 2.0 / fps) ? 0.90 : 0.05
+                    if let ev = flashDet.processLuminance(luma, timestampSeconds: t) {
+                        flash = ev
+                    }
+                    t += 1.0 / fps
+                }
+
+                let pulseDet = AudioPulseDetector()
+                let toneStart = T + wantSec
+                let quietUntil = min(T + 0.05, toneStart - 0.02)
+                _ = feedTone(pulseDet, from: T - 1.0, until: quietUntil, paint: { _ in 0.001 })
+                let hits = feedTone(pulseDet, from: quietUntil, until: toneStart + 0.25, paint: { tt in
+                    0.001 + hzTone(tt, start: toneStart, dur: harkwoodBeepDur, amp: 0.55, f: harkwoodBeepHz)
+                })
+
+                let label: String
+                if wantMs == 0 { label = "T+0" }
+                else if wantMs > 0 { label = "T+\(Int(wantMs))" }
+                else { label = "T\(Int(wantMs))" }
+
+                expect(flash != nil, "offset table \(label): flash at T", flash.map { String(format: "%.4f", $0.timestampSeconds) } ?? "nil")
+                expect(hits.count == 1, "offset table \(label): one 66.7 ms 3 kHz onset", "n=\(hits.count)")
+                expect(clock.allowsPublishedPairs, "offset table \(label): still settled+frozen")
+                expect(clock.acceptDetectedEvent(stream: .video), "offset table \(label): video event accepted after freeze")
+                expect(clock.acceptDetectedEvent(stream: .audio), "offset table \(label): audio event accepted after freeze")
+
+                guard let flash, let pulse = hits.first else {
+                    print("  \(label)        \(wantMs)         nil  FAIL")
+                    continue
+                }
+                expect(pulse.isPairable, "offset table \(label): 66.7 ms 3 kHz is pairable (not speech)")
+                let vU = clock.unified(stream: .video, ptsSeconds: flash.timestampSeconds)
+                let aU = clock.unified(stream: .audio, ptsSeconds: pulse.timestampSeconds)
+                let e = SyncMeasurementEngine()
+                let sample: SyncSample?
+                if aU <= vU {
+                    _ = e.ingestPulse(AudioPulseEvent(
+                        timestampSeconds: aU,
+                        envelope: pulse.envelope,
+                        threshold: pulse.threshold,
+                        durationSeconds: pulse.durationSeconds,
+                        sharpness: pulse.sharpness,
+                        isBeepLike: pulse.isBeepLike
+                    ))
+                    sample = e.ingestFlash(VisualFlashEvent(timestampSeconds: vU, luminance: flash.luminance, threshold: flash.threshold))
+                } else {
+                    _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: vU, luminance: flash.luminance, threshold: flash.threshold))
+                    sample = e.ingestPulse(AudioPulseEvent(
+                        timestampSeconds: aU,
+                        envelope: pulse.envelope,
+                        threshold: pulse.threshold,
+                        durationSeconds: pulse.durationSeconds,
+                        sharpness: pulse.sharpness,
+                        isBeepLike: pulse.isBeepLike
+                    ))
+                }
+                let got = sample?.offsetMilliseconds
+                let ok: Bool
+                if let got {
+                    ok = abs(got - wantMs) < 20
+                } else {
+                    ok = false
+                }
+                let gotStr = got.map { String(format: "%+.1f", $0) } ?? "nil"
+                print("  \(label.padding(toLength: 8, withPad: " ", startingAt: 0))  \(String(format: "%+10.1f", wantMs))  \(gotStr.padding(toLength: 10, withPad: " ", startingAt: 0))  \(ok ? "PASS" : "FAIL")")
+                expect(sample != nil, "offset table \(label): PAIR after settle+freeze", "nil")
+                if let got {
+                    expect(abs(got - wantMs) < 20, "offset table \(label): PAIR at \(Int(wantMs)) ms +/- a few ms (not residual-only / not 0)", String(format: "got %+.2f want %+.1f", got, wantMs))
+                    if abs(wantMs) >= 80 {
+                        expect(abs(got) > 40, "offset table \(label): must not collapse to residual/0", String(format: "got %+.2f", got))
+                    }
+                }
+            }
+        }
+
+        do {
+            // Speech still rejected at +/-500 ms (SyncCore zip failed this with a +/-500 window).
+            let e = SyncMeasurementEngine()
+            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 1.0, luminance: 0.90, threshold: 0.1))
+            let speechP = e.ingestPulse(.voiceLike(timestampSeconds: 1.500))
+            expect(speechP == nil, "+500 ms speech must NOT pair")
+            let speechM = e.ingestPulse(.voiceLike(timestampSeconds: 0.500))
+            expect(speechM == nil, "-500 ms speech must NOT pair")
+            expect(e.snapshot().validCount == 0, "+/-500 ms speech creates zero pairs", "n=\(e.snapshot().validCount)")
+            expect(!AudioPulseEvent.voiceLike(timestampSeconds: 0).isPairable, "ongoing speech is still not pairable after 1.00 s window")
+        }
+
+        do {
+            // Overlapping speech at +/-500 must not steal the true beep pair.
+            let e = SyncMeasurementEngine()
+            var offsets: [Double] = []
+            for i in 0..<8 {
+                let t = 4.0 + Double(i) * 3.0
+                _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: t, luminance: 0.90, threshold: 0.1))
+                _ = e.ingestPulse(.voiceLike(timestampSeconds: t + 0.500))
+                _ = e.ingestPulse(.voiceLike(timestampSeconds: t - 0.500))
+                if let s = e.ingestPulse(harkwoodPulse(t: t + 0.080, isBeepLike: true)) {
+                    offsets.append(s.offsetMilliseconds)
+                }
+            }
+            let snap = e.snapshot()
+            expect(snap.validCount == 8, "speech at +/-500 does not steal beep pairs", "valid=\(snap.validCount) offs=\(offsets)")
+            expect(abs(snap.medianMilliseconds - 80) < 0.5, "median stays on the true beep offset +80, not +/-500 speech", String(format: "med %.3f", snap.medianMilliseconds))
+            expect(offsets.allSatisfy { abs($0 - 80) < 0.5 }, "every pair is the 66.7 ms 3 kHz +80, not speech", "\(offsets)")
         }
 
         if failed == 0 {

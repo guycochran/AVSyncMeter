@@ -252,7 +252,7 @@ final class MeasurementSession: ObservableObject {
             self.clockSnapshot = clock
             // CaptureClock unified seconds — the same domain pairing uses.
             // Wall-clock (CFAbsoluteTimeGetCurrent) made 1 Hz LUMA+MIC look
-            // aligned on the strip while |unified dt| > 400 ms never paired.
+            // aligned on the strip while |unified dt| outside the pairing window never paired.
             if let luminance, let sampleTime {
                 self.liveLuminance = luminance
                 self.meterHistory.appendLuma(t: sampleTime, value: luminance)

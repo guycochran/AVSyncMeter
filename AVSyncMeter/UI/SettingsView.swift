@@ -30,7 +30,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading) {
                         Text(String(format: "Pairing window ±%.0f ms", settings.pairingWindowSeconds * 1000))
                         Slider(value: $settings.pairingWindowSeconds, in: 0.20...2.0)
-                        Text("Default 400 ms covers monitor+PA+Mitti. Ring-down 220–350 ms still expires vs the next 1 Hz flash.")
+                        Text("Default 1000 ms covers LED processor + Mitti delay. Isolated tone pairs; overlapping speech does not.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }

@@ -4,7 +4,7 @@ import Foundation
 /// Feed from the same live luma/mic as the needles — never from valid pairs.
 /// Timestamps are CaptureClock unified seconds (the same domain pairing uses).
 /// Do not stamp with wall-clock (`CFAbsoluteTimeGetCurrent`): that makes a
-/// 1 Hz flash and pulse look aligned on the strip while |unified dt| > 400 ms
+/// 1 Hz flash and pulse look aligned on the strip while |unified dt| is outside the pairing window
 /// never pairs. EVT marks follow engine ingest, not a VU envelope threshold.
 /// Display only — not a measurement timestamp and not part of pairing.
 final class MeterHistory {
