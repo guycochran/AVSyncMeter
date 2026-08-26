@@ -1900,31 +1900,185 @@ struct HostHarness {
             return env * amp * Float(sin(2 * Double.pi * f * t))
         }
 
+        // MARK: - CANONICAL Harkwood Standard (measured, not a 1.000 Hz click)
+        //
+        // External file Guy plays (never bundled):
+        //   Sync-One2_Test_1080p_29.97_H.264_PCM_Stereo.mov
+        //   1920x1080, 30000/1001, pcm_s16le 48 kHz stereo
+        // Flash: exactly 2 frames, every 30 frames = 1001.000 ms (0.9990 Hz), NOT 1.000 Hz
+        // Beep: 3000 Hz burst, mean 66.678 ms (2 frames), not a 10–20 ms click
+        // File A/V offset 0.000 ms (onset aligned to flash frame start)
+        // First event t=11.011 s (300 title frames = 10.010 s + 30 black = 1.001 s)
+        // Pairing must not treat the cadence as 1.000 Hz (that walks ~1 ms/beep).
+        // Speech stays overlapping/ongoing — a periodic 66.7 ms 3 kHz tone is not speech.
+
+        let harkwoodPeriod = 30.0 * 1_001.0 / 30_000.0
+        let harkwoodT0 = 11.011
+        let harkwoodBeepDur = 0.066_678
+        let harkwoodBeepHz = 3_000.0
+        let harkwoodN = 12
+
+        func harkwoodPulse(t: Double, isBeepLike: Bool = false) -> AudioPulseEvent {
+            AudioPulseEvent(
+                timestampSeconds: t,
+                envelope: 0.55,
+                threshold: 0.05,
+                durationSeconds: harkwoodBeepDur,
+                sharpness: 0.85,
+                isBeepLike: isBeepLike
+            )
+        }
+
         do {
-            // (a) 1 Hz flash + ~67 ms 2-frame tone, pulse +80 ms, PAIR on onset.
-            let d = AudioPulseDetector()
-            _ = feedTone(d, from: 0.0, until: 0.8, paint: { _ in 0.001 })
-            let hits = feedTone(d, from: 0.8, until: 2.4, paint: { t in
-                0.001 + hzTone(t, start: 1.080, dur: 0.067, amp: 0.55) + hzTone(t, start: 2.080, dur: 0.067, amp: 0.55)
-            })
-            expect(hits.count == 2, "67 ms 1 Hz tone onsets (not dropped as ongoing energy)", "n=\(hits.count) times=\(hits.map { String(format: "%.3f", $0.timestampSeconds) })")
-            if hits.count >= 1 {
-                expect(abs(hits[0].timestampSeconds - 1.080) < 0.012, "67 ms tone PAIR stamp is ONSET not duration", String(format: "%.4f", hits[0].timestampSeconds))
-                expect(hits[0].isBeepLike && hits[0].isPairable, "67 ms isolated tone is beep-like / pairable")
-            }
+            expect(abs(harkwoodPeriod - 1.001) < 1e-12, "CANONICAL period is 1001.000 ms, not 1.000 s")
+            expect(abs(harkwoodPeriod * 1_000.0 - 1_001.0) < 1e-9, "CANONICAL period * 1000 is 1001.000 ms")
+            let title = 300.0 * 1_001.0 / 30_000.0
+            let black = 30.0 * 1_001.0 / 30_000.0
+            expect(abs(title - 10.010) < 1e-12, "300 title frames at 30000/1001 = 10.010 s")
+            expect(abs(black - 1.001) < 1e-12, "30 black frames at 30000/1001 = 1.001 s")
+            expect(abs((title + black) - harkwoodT0) < 1e-12, "first event t=11.011 s (10.010 title + 1.001 black)")
+            expect(abs(1.0 / harkwoodPeriod - 0.999_000_999) < 1e-9, "CANONICAL cadence is 0.9990 Hz, not 1.000 Hz")
+            let twoFrames = 2.0 * 1_001.0 / 30_000.0
+            expect(abs(twoFrames * 1_000.0 - 66.733_3) < 0.01, "2 frames at 29.97 is ~66.7 ms")
+            expect(abs(harkwoodBeepDur * 1_000.0 - 66.678) < 1e-9, "measured beep mean is 66.678 ms, not a 10–20 ms click")
+        }
+
+        do {
+            // 1001 ms flash + 66.7 ms 3 kHz, pulse onset +0 ms, MUST PAIR.
             let e = SyncMeasurementEngine()
-            if hits.count >= 2 {
-                _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 1.0, luminance: 0.8, threshold: 0.1))
-                let a = e.ingestPulse(hits[0])
-                _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 2.0, luminance: 0.8, threshold: 0.1))
-                let b = e.ingestPulse(hits[1])
-                expect(a != nil && abs((a?.offsetMilliseconds ?? 999) - 80) < 15, "1 Hz flash + 67 ms tone +80 PAIR", a.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
-                expect(b != nil && abs((b?.offsetMilliseconds ?? 999) - 80) < 15, "second 67 ms 1 Hz tone pairs on onset", b.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
+            let pulse = harkwoodPulse(t: harkwoodT0)
+            expect(pulse.isPairable, "66.7 ms 3 kHz is pairable without a 10–20 ms click")
+            expect(abs(pulse.durationSeconds - harkwoodBeepDur) < 1e-12, "CANONICAL pulse duration is 66.678 ms")
+            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: harkwoodT0, luminance: 0.90, threshold: 0.1))
+            let s = e.ingestPulse(pulse)
+            expect(s != nil && abs(s!.offsetMilliseconds) < 0.5, "CANONICAL +0 ms MUST PAIR (file A/V offset 0.000 ms)", s.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
+            expect(abs((s?.videoTimestampSeconds ?? -1) - harkwoodT0) < 1e-12, "CANONICAL first pair video is t=11.011 s", s.map { String(format: "%.6f", $0.videoTimestampSeconds) } ?? "nil")
+            expect(abs((s?.audioTimestampSeconds ?? -1) - harkwoodT0) < 1e-12, "CANONICAL first pair audio onset is t=11.011 s")
+        }
+
+        do {
+            // 1001 ms flash + 66.7 ms 3 kHz, pulse onset +80 ms, MUST PAIR.
+            let e = SyncMeasurementEngine()
+            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: harkwoodT0, luminance: 0.90, threshold: 0.1))
+            let s = e.ingestPulse(harkwoodPulse(t: harkwoodT0 + 0.080))
+            expect(s != nil && abs(s!.offsetMilliseconds - 80) < 0.5, "CANONICAL +80 ms MUST PAIR", s.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
+        }
+
+        do {
+            // Cadence 1001 ms × N stays flat. Treating it as 1.000 Hz walks ~1 ms/beep.
+            let e = SyncMeasurementEngine()
+            var fake1Hz: [Double] = []
+            for i in 0..<harkwoodN {
+                let t = harkwoodT0 + Double(i) * harkwoodPeriod
+                _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: t, luminance: 0.90, threshold: 0.1))
+                _ = e.ingestPulse(harkwoodPulse(t: t))
+                let pulseIf1Hz = harkwoodT0 + Double(i) * 1.0
+                fake1Hz.append((pulseIf1Hz - t) * 1_000.0)
+            }
+            let snap = e.snapshot()
+            expect(snap.validCount == harkwoodN, "CANONICAL 1001 ms × N all PAIR at +0 ms", "valid=\(snap.validCount)")
+            expect(abs(snap.medianMilliseconds) < 0.5, "CANONICAL +0 cadence median stays 0.000 ms", String(format: "med %.3f", snap.medianMilliseconds))
+            expect(abs(snap.walkMsPerEvent ?? 999) < 0.2, "CANONICAL 1001 ms × N stays flat (no 1 ms/beep walk)", snap.walkMsPerEvent.map { String(format: "%.4f", $0) } ?? "nil")
+            let fakeWalk = MeasurementStatistics.walkMsPerEvent(fake1Hz) ?? 0
+            expect(abs(fakeWalk + 1.0) < 0.05, "treating Harkwood as 1.000 Hz would walk −1 ms/beep", String(format: "fakeWalk %.4f", fakeWalk))
+            let first = snap.recentValidSamples.last
+            expect(abs((first?.videoTimestampSeconds ?? -1) - harkwoodT0) < 1e-12, "CANONICAL first event of the train is 11.011 s")
+        }
+
+        do {
+            let e = SyncMeasurementEngine()
+            for i in 0..<harkwoodN {
+                let t = harkwoodT0 + Double(i) * harkwoodPeriod
+                _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: t, luminance: 0.90, threshold: 0.1))
+                _ = e.ingestPulse(harkwoodPulse(t: t + 0.080))
+            }
+            let snap = e.snapshot()
+            expect(snap.validCount == harkwoodN, "CANONICAL 1001 ms × N all PAIR at +80 ms", "valid=\(snap.validCount)")
+            expect(abs(snap.medianMilliseconds - 80) < 0.5, "CANONICAL +80 cadence median stays +80 ms")
+            expect(abs(snap.walkMsPerEvent ?? 999) < 0.2, "CANONICAL +80 ms at 1001 ms × N stays flat", snap.walkMsPerEvent.map { String(format: "%.4f", $0) } ?? "nil")
+        }
+
+        do {
+            // Detector: 66.7 ms 3 kHz (not a 10–20 ms click), first event 11.011, +0 and +80 MUST PAIR.
+            func paintBeeps(_ t: Double, offset: Double) -> Float {
+                var x: Float = 0.001
+                for i in 0..<harkwoodN {
+                    let start = harkwoodT0 + Double(i) * harkwoodPeriod + offset
+                    x += hzTone(t, start: start, dur: harkwoodBeepDur, amp: 0.55, f: harkwoodBeepHz)
+                }
+                return x
+            }
+            let until = harkwoodT0 + Double(harkwoodN) * harkwoodPeriod + 0.25
+
+            for offset in [0.0, 0.080] {
+                let d = AudioPulseDetector()
+                _ = feedTone(d, from: 10.0, until: harkwoodT0 - 0.05, paint: { _ in 0.001 })
+                let hits = feedTone(d, from: harkwoodT0 - 0.05, until: until, paint: { paintBeeps($0, offset: offset) })
+                let label = offset == 0 ? "+0" : "+80"
+                expect(hits.count == harkwoodN, "CANONICAL detector 66.7 ms 3 kHz \(label) onsets \(harkwoodN)× (not dropped as speech / not a click)", "n=\(hits.count) times=\(hits.map { String(format: "%.3f", $0.timestampSeconds) })")
+                if let first = hits.first {
+                    expect(abs(first.timestampSeconds - (harkwoodT0 + offset)) < 0.015, "CANONICAL detector first onset is 11.011\(label == "+80" ? "+80 ms" : " s")", String(format: "%.4f", first.timestampSeconds))
+                    expect(first.isPairable, "CANONICAL 66.7 ms 3 kHz detector emit is pairable (not a 10–20 ms click)")
+                }
+                let e = SyncMeasurementEngine()
+                var paired = 0
+                for i in 0..<min(hits.count, harkwoodN) {
+                    let tFlash = harkwoodT0 + Double(i) * harkwoodPeriod
+                    _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: tFlash, luminance: 0.90, threshold: 0.1))
+                    if e.ingestPulse(hits[i]) != nil { paired += 1 }
+                }
+                expect(paired == harkwoodN && e.snapshot().validCount == harkwoodN, "CANONICAL 1001 ms flash + 66.7 ms 3 kHz \(label) MUST PAIR", "paired=\(paired) valid=\(e.snapshot().validCount)")
+                let want = offset * 1_000.0
+                expect(abs(e.snapshot().medianMilliseconds - want) < 15, "CANONICAL detector \(label) median near \(Int(want)) ms", String(format: "med %.2f", e.snapshot().medianMilliseconds))
+                expect(abs(e.snapshot().walkMsPerEvent ?? 999) < 0.2, "CANONICAL detector 1001 ms × N \(label) stays flat", e.snapshot().walkMsPerEvent.map { String(format: "%.4f", $0) } ?? "nil")
             }
         }
 
         do {
-            // (b) 1 Hz flash + longer 200–400 ms tone, PAIR on onset (not mid/end).
+            // 2-frame white every 30 frames at 30000/1001, first event 11.011.
+            // Sample on the file's frame grid (n * 1001/30000), not wall 10.000 s.
+            let d = VideoFlashDetector()
+            let frameDt = 1_001.0 / 30_000.0
+            let firstFlashFrame = 330 // 300 title + 30 black → t=11.011
+            let lastFlashFrame = firstFlashFrame + (harkwoodN - 1) * 30
+            var times: [Double] = []
+            for frame in (firstFlashFrame - 60)...(lastFlashFrame + 8) {
+                let t = Double(frame) * frameDt
+                let luma: Double
+                if frame < firstFlashFrame {
+                    luma = 0.05
+                } else {
+                    luma = ((frame - firstFlashFrame) % 30) < 2 ? 0.90 : 0.05
+                }
+                if let ev = d.processLuminance(luma, timestampSeconds: t) {
+                    times.append(ev.timestampSeconds)
+                }
+            }
+            expect(times.count == harkwoodN, "CANONICAL 2-frame flash every 30 frames at 29.97 is \(harkwoodN) events (1001 ms, not 1.000 Hz)", "n=\(times.count) times=\(times.prefix(4).map { String(format: "%.4f", $0) })")
+            if times.count == harkwoodN {
+                expect(abs(times[0] - harkwoodT0) < 1e-9, "CANONICAL first flash is t=11.011 s", String(format: "%.6f", times[0]))
+                for i in 0..<harkwoodN {
+                    let want = harkwoodT0 + Double(i) * harkwoodPeriod
+                    expect(abs(times[i] - want) < 1e-9, "CANONICAL flash \(i) on 1001 ms cadence", String(format: "got %.6f want %.6f", times[i], want))
+                }
+            }
+        }
+
+        do {
+            // Speech is overlapping/ongoing. A periodic 66.7 ms 3 kHz tone is not speech.
+            expect(harkwoodPulse(t: harkwoodT0).isPairable, "periodic 66.7 ms 3 kHz is not speech")
+            expect(!AudioPulseEvent.voiceLike(timestampSeconds: harkwoodT0).isPairable, "overlapping/ongoing speech is still not pairable")
+            let e = SyncMeasurementEngine()
+            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: harkwoodT0, luminance: 0.90, threshold: 0.1))
+            _ = e.ingestPulse(.voiceLike(timestampSeconds: harkwoodT0 + 0.050))
+            _ = e.ingestPulse(.voiceLike(timestampSeconds: harkwoodT0 + 0.150))
+            let s = e.ingestPulse(harkwoodPulse(t: harkwoodT0 + 0.080, isBeepLike: true))
+            expect(s != nil && abs(s!.offsetMilliseconds - 80) < 0.5, "speech stays rejected; CANONICAL pair is the 66.7 ms 3 kHz +80", s.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
+            expect(e.snapshot().validCount == 1, "overlapping speech does not create extra pairs", "n=\(e.snapshot().validCount)")
+        }
+
+        do {
+            // Longer isolated 200–400 ms tone still PAIR on onset (not the Harkwood canonical).
             for dur in [0.200, 0.300, 0.400] {
                 let d = AudioPulseDetector()
                 _ = feedTone(d, from: 0.0, until: 0.8, paint: { _ in 0.001 })
@@ -1932,7 +2086,7 @@ struct HostHarness {
                     0.001 + hzTone(t, start: 1.080, dur: dur, amp: 0.60)
                 })
                 let ms = Int(dur * 1000)
-                expect(hits.count == 1, "\(ms) ms 1 Hz tone onsets once", "n=\(hits.count) times=\(hits.map { String(format: "%.3f", $0.timestampSeconds) })")
+                expect(hits.count == 1, "\(ms) ms isolated tone onsets once", "n=\(hits.count) times=\(hits.map { String(format: "%.3f", $0.timestampSeconds) })")
                 if let onset = hits.first {
                     expect(abs(onset.timestampSeconds - 1.080) < 0.015, "\(ms) ms tone PAIR stamp is ONSET not mid/end", String(format: "onset %.4f (mid would be %.3f end %.3f)", onset.timestampSeconds, 1.080 + dur / 2, 1.080 + dur))
                     expect(onset.timestampSeconds < 1.080 + 0.050, "\(ms) ms tone must not stamp late in the tone", String(format: "%.4f", onset.timestampSeconds))
@@ -1940,10 +2094,11 @@ struct HostHarness {
                     let e = SyncMeasurementEngine()
                     _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 1.0, luminance: 0.8, threshold: 0.1))
                     let s = e.ingestPulse(onset)
-                    expect(s != nil && abs((s?.offsetMilliseconds ?? 999) - 80) < 20, "1 Hz flash + \(ms) ms tone +80 PAIR on onset", s.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
+                    expect(s != nil && abs((s?.offsetMilliseconds ?? 999) - 80) < 20, "isolated \(ms) ms tone +80 PAIR on onset", s.map { String(format: "%+.2f", $0.offsetMilliseconds) } ?? "nil")
                 }
             }
         }
+
 
         if failed == 0 {
             print("ALL HARNESS TESTS PASSED")

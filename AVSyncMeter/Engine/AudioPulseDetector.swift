@@ -10,9 +10,11 @@ import Accelerate
 /// 1 ms per beep. The noise floor is updated only on quiet hops, never
 /// during the mask. Onset time = buffer media timestamp + sample offset.
 ///
-/// Stage-noise: emit isolated 1 Hz hits on onset, not after the tone ends.
-/// A PA-smeared / 2-frame (~67 ms) / 200–400 ms periodic 1 kHz beep must
-/// still event. Speech is overlapping/ongoing energy, not a periodic tone.
+/// Stage-noise: emit isolated house hits on onset, not after the tone ends.
+/// Harkwood measured: 1001 ms cadence, 66.7 ms 3 kHz (2 frames), not a
+/// 1.000 Hz / 10–20 ms click. A PA-smeared / 2-frame / 200–400 ms
+/// periodic tone must still event. Speech is overlapping/ongoing energy,
+/// not a periodic 66.7 ms tone.
 /// Speech stays loud so quiet re-arm cannot fire on the next syllable.
 /// A 1 kHz overlay can still win while voice is held. 400 ms mask after a real beep.
 ///
@@ -22,7 +24,7 @@ final class AudioPulseDetector {
         var sensitivity: Double = 0.65
         var manualThreshold: Double?
         /// Seconds the detector stays deaf after a hit so tails are not extra events.
-        /// Harkwood Sync-One2 is 1 Hz; 300–500 ms dead time is fine.
+        /// Harkwood Sync-One2 measured cadence is 1001 ms (0.9990 Hz), not 1.000 Hz; 300–500 ms dead time is fine.
         var maskSeconds: Double = 0.40
         /// First-sample onset vs noise floor. Independent of the trigger.
         var onsetNoiseMultiple: Double = 4.0
@@ -36,7 +38,7 @@ final class AudioPulseDetector {
         var confirmationSamples: Int = 6
         var lookbackSeconds: Double = 0.03
         /// Isolated pulses up to this duration are still a beep (PA smear).
-        /// Ongoing energy past this is voice/walkie, not a 1 Hz house beep.
+        /// Ongoing energy past this is voice/walkie, not a 1001 ms house beep.
         var beepMaxDurationSeconds: Double = 0.085
         /// High-band (mean abs-diff) jump that can overlay a 1 kHz beep on speech.
         var highBandJump: Double = 0.035
@@ -310,10 +312,11 @@ final class AudioPulseDetector {
         return combinedStart + Double(max(searchStart, hopEnd - win)) / sampleRate
     }
 
-    /// Commit an isolated 1 Hz hit on ONSET, or drop overlapping speech.
-    /// PAIR uses the onset stamp, not tone duration. A Harkwood 2-frame
-    /// (~67 ms) or a 200–400 ms periodic 1 kHz tone is still one isolated
-    /// hit — speech is overlapping/ongoing energy, not a periodic tone.
+    /// Commit an isolated house hit on ONSET, or drop overlapping speech.
+    /// PAIR uses the onset stamp, not tone duration. Harkwood measured
+    /// 1001 ms / 66.7 ms 3 kHz (2 frames), or a 200–400 ms periodic tone,
+    /// is still one isolated hit — speech is overlapping/ongoing energy,
+    /// not a periodic 66.7 ms tone.
     /// Dull 15–80 ms PA smear then quiet still events. A dull 100 ms+
     /// syllable (overlapping/ongoing, not 1 kHz) still does not.
     private func finishCandidateIfReady(now: Double) -> AudioPulseEvent? {

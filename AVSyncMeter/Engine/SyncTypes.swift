@@ -44,7 +44,7 @@ struct AudioPulseEvent: Equatable {
     let timestampSeconds: Double
     let envelope: Double
     let threshold: Double
-    /// How long the burst stayed up. Harkwood/SIG ~10–20 ms; speech is longer.
+    /// How long the burst stayed up. Harkwood measured ~66.7 ms 3 kHz (2 frames), not a 10–20 ms click. Speech is overlapping/ongoing.
     var durationSeconds: Double = 0.016
     /// 0...1. High = sharp/high-band (1 kHz beep / click). Low = dull onset.
     var sharpness: Double = 1.0
@@ -52,8 +52,9 @@ struct AudioPulseEvent: Equatable {
     /// test pulses keep pairing like a house beep.
     var isBeepLike: Bool = true
 
-    /// Isolated 1 Hz house hit must pair even when the old isBeepLike
-    /// duration gate was false. A periodic tone (sharp, including 67 ms
+    /// Isolated house hit must pair even when the old isBeepLike
+    /// duration gate was false. Harkwood is 1001 ms / 66.7 ms 3 kHz,
+    /// not a 1.000 Hz click. A periodic tone (sharp, including 66.7 ms
     /// or 200–400 ms) is not speech. Speech is overlapping/ongoing
     /// (low sharpness, long dull energy), not a once-per-second spike.
     var isPairable: Bool {
