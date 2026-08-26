@@ -1652,6 +1652,52 @@ struct HostHarness {
             expect(h.lumaCount == 0 && h.micCount == 0 && h.markCount == 0 && h.lastTimestamp == 0, "RESET clears VU samples and marks")
         }
 
+        // MARK: - Build 16: 1 Hz FLASH + delayed AUDIOPULSE must PAIR (keep-latest was the bug)
+
+        do {
+            // Live 60 fps measure queue: next 1 Hz flash is ingested before the
+            // beep-like pulse whose onset is still inside ±400 ms of the previous
+            // flash. Keep-latest of one pending flash dropped that match → MEAS 0
+            // with FLASH+AUDIOPULSE marks and REJECTEDEXTRAFLASH every ~1 s.
+            let e = SyncMeasurementEngine()
+            var paired = 0
+            for i in 0..<8 {
+                let t = Double(i)
+                _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: t, luminance: 0.58, threshold: 0.124))
+                if i > 0 {
+                    if e.ingestPulse(.beepLike(timestampSeconds: Double(i - 1) + 0.080)) != nil {
+                        paired += 1
+                    }
+                }
+            }
+            if e.ingestPulse(.beepLike(timestampSeconds: 7.080)) != nil { paired += 1 }
+            let snap = e.snapshot()
+            expect(snap.validCount == 8, "1 Hz FLASH + delayed 1 Hz AUDIOPULSE within ±400 ms must PAIR (not zero pairs)", "valid=\(snap.validCount) paired=\(paired) rejected=\(snap.rejectedCount)")
+            expect(abs(snap.medianMilliseconds - 80) < 1.0, "delayed-pulse pairs stay ~+80 ms", String(format: "med %.3f", snap.medianMilliseconds))
+            let kinds = Set(e.diagnostics.map(\.kind))
+            expect(kinds.contains(.flash) && kinds.contains(.audioPulse) && kinds.contains(.paired), "FLASH+AUDIOPULSE ingest produces PAIR diagnostics", "\(kinds)")
+            expect(!kinds.contains(.clockSettling), "this case is pairing, not clock hold")
+        }
+
+        do {
+            // Same 1 Hz train ingested in timestamp order still pairs (no lag).
+            let e = SyncMeasurementEngine()
+            for i in 0..<8 {
+                let t = Double(i)
+                _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: t, luminance: 0.58, threshold: 0.124))
+                _ = e.ingestPulse(.beepLike(timestampSeconds: t + 0.080))
+            }
+            expect(e.snapshot().validCount == 8, "in-order 1 Hz FLASH+PULSE still pairs", "n=\(e.snapshot().validCount)")
+            expect(abs(e.snapshot().medianMilliseconds - 80) < 0.5, "in-order pairs stay +80 ms")
+        }
+
+        do {
+            expect(MeterHistory.displayMicLevel(0.02) > 0.25, "display MIC at env 0.02 is not a sliver", String(format: "%.3f", MeterHistory.displayMicLevel(0.02)))
+            expect(MeterHistory.displayMicLevel(0.02) < 1, "display MIC at env 0.02 is not pegged")
+            expect(abs(MeterHistory.displayMicLevel(0.001) - 0.016) < 1e-9, "display MIC *16 does not change detector math")
+            expect(MeterHistory.displayMicLevel(0.20) == 1, "display MIC clamps at 1")
+        }
+
         if failed == 0 {
             print("ALL HARNESS TESTS PASSED")
         } else {

@@ -43,6 +43,12 @@ final class MeterHistory {
         min(max(seconds, minWindowSeconds), maxWindowSeconds)
     }
 
+    /// Display-only MIC needle/strip gain. Does not feed pairing or thresholds.
+    /// Live envelope * 4 was a sliver in a loud room at 70% audio sensitivity.
+    static func displayMicLevel(_ envelope: Double) -> Double {
+        min(1, max(0, envelope * 16))
+    }
+
     func reset() {
         luma.removeAll(keepingCapacity: true)
         mic.removeAll(keepingCapacity: true)

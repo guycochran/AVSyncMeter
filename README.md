@@ -32,7 +32,7 @@ Example: `+193 ms` at 29.97 fps is about **5.79 frames**. Recommended delay: **+
 3. Open AV Sync Meter. Grant Camera and Microphone.
 4. Aim the green target at the flash area on the screen.
 5. Set program frame rate in Settings (29.97/59.94 lock capture to 60_000/1001 then 30_000/1001; if the camera cannot, the footer says NTSC lock MISS instead of silent 1/30. 30/60 stay integer). It also converts ms → frames.
-6. Tap **START**. Status is **LISTENING** until pairs arrive.
+6. Tap **START** (START/STOP/RESET stay on screen). Status is **LISTENING** until pairs arrive.
 7. The headline AUDIO EARLY/LATE, large ms, Mitti delay, and frames use the **median of valid samples** (minus calibration), not the latest beep. The last-25 table still lists each hit. Watch MEAS / AVG / MED / VAR / SPAN / WALK. Prefer the median. WALK is ms per beep — on a constant delay it must sit near 0, not climb ~1 ms/beep. RAW vs CORRECTED medians are shown on the main screen (ZERO can make CORRECTED 0; that is not lab-grade). Type the delay into Mitti; the app does not push it. Use a PCM stereo test file and start from the beginning (10 s lead-in). Harkwood Sync-One2 files are external only, not bundled: https://harkwood.co.uk/products/sync-one2/test-files/.
 8. **SYNC STABLE** means the standard deviation of valid samples is under the Settings threshold (default 8 ms) and you have at least three valid pairs.
 9. Apply the recommended delay in Mitti. Re-measure.

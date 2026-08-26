@@ -13,28 +13,33 @@ struct MeasurementView: View {
     var body: some View {
         ZStack {
             VenueTheme.bg.ignoresSafeArea()
-            ScrollView {
-            VStack(spacing: 10) {
+            VStack(spacing: 8) {
                 header
-                preview
-                resultBlock
-                statsRow
-                recentTable
-                meters
+                    .padding(.horizontal, 14)
+                ScrollView {
+                    VStack(spacing: 8) {
+                        preview
+                        resultBlock
+                        statsRow
+                        recentTable
+                        meters
+                        calibrateRow
+                        if let calibrateNote {
+                            Text(calibrateNote)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(VenueTheme.early)
+                                .multilineTextAlignment(.center)
+                        }
+                        if settings.showDistanceHelper {
+                            distanceNote
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                }
                 controls
-                calibrateRow
-                if let calibrateNote {
-                    Text(calibrateNote)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(VenueTheme.early)
-                        .multilineTextAlignment(.center)
-                }
-                if settings.showDistanceHelper {
-                    distanceNote
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 4)
             }
         }
         .sheet(isPresented: $showSettings) {
@@ -93,7 +98,7 @@ struct MeasurementView: View {
                 .background(Color.black.opacity(0.72))
             }
         }
-        .frame(maxHeight: 200)
+        .frame(maxHeight: 148)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -253,7 +258,7 @@ struct MeasurementView: View {
         let cal = session.snapshot.calibrationOffsetMilliseconds
         let total = session.snapshot.validCount
         let rowHeight: CGFloat = 15
-        let visibleRows = min(max(samples.count, 1), 15)
+        let visibleRows = min(max(samples.count, 1), 6)
         return VStack(alignment: .leading, spacing: 2) {
             Text("LAST 25 VALID · newest first · scroll")
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
@@ -343,7 +348,7 @@ struct MeasurementView: View {
     private var meters: some View {
         VStack(alignment: .leading, spacing: 6) {
             meter(label: "LUMA", value: session.liveLuminance, color: VenueTheme.meter)
-            meter(label: "MIC ", value: min(1, session.liveAudioLevel * 4), color: VenueTheme.late)
+            meter(label: "MIC ", value: MeterHistory.displayMicLevel(session.liveAudioLevel), color: VenueTheme.late)
             vuHistory
             if session.capture.observedVideoFPS > 0 {
                 Text(FrameRate.captureFooter(observedFPS: session.capture.observedVideoFPS, picker: settings.frameRate))
@@ -443,7 +448,7 @@ struct MeasurementView: View {
                     }
                 }
             }
-            .frame(height: 36)
+            .frame(height: 22)
         }
     }
 
@@ -480,7 +485,7 @@ struct MeasurementView: View {
                     }
                 }
             }
-            .frame(height: 14)
+            .frame(height: 10)
         }
     }
 
@@ -515,7 +520,7 @@ struct MeasurementView: View {
             Text(title)
                 .font(.system(size: 14, weight: .bold, design: .monospaced))
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+                .padding(.vertical, 10)
                 .background(color.opacity(0.18))
                 .foregroundStyle(color)
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))

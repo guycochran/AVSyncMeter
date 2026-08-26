@@ -213,6 +213,20 @@ final class SyncMeasurementEngineTests: XCTestCase {
         XCTAssertNil(CalibrationMath.measuredOffsetForZero(validCount: 0, medianMilliseconds: 0, currentOffsetMilliseconds: nil))
     }
 
+    func testOneHzFlashPlusDelayedPulsePairsInsideWindow() {
+        let e = SyncMeasurementEngine()
+        for i in 0..<8 {
+            let t = Double(i)
+            _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: t, luminance: 0.58, threshold: 0.124))
+            if i > 0 {
+                _ = e.ingestPulse(.beepLike(timestampSeconds: Double(i - 1) + 0.080))
+            }
+        }
+        _ = e.ingestPulse(.beepLike(timestampSeconds: 7.080))
+        XCTAssertEqual(e.snapshot().validCount, 8)
+        XCTAssertEqual(e.snapshot().medianMilliseconds, 80, accuracy: 1)
+    }
+
     func testFlashDetectorSingleEvent() {
         let d = VideoFlashDetector()
         var hits = 0

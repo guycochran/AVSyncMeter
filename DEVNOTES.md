@@ -156,3 +156,13 @@ Keeps (14) mic path (loudest-channel mix, measurement session, 89% PA onset), st
 
 HostHarness: default window 90 s (clamp 1–90); live luma/mic recorded with zero pairs; FLASH+AUDIOPULSE marks without PAIR; PAIR mark only when paired; 1-frame luma flash and mic pulse peak-hold at NOW (right); 90 s window keeps a spike from 90 s ago; samples older than the window vanish; RESET clears samples and marks; traces stay independent.
 
+
+## Build 16 (pairing: keep flashes, not keep-latest)
+
+On-device 0.1.2 (15): FLASH 1 Hz, AUDIOPULSE less often, REJECTEDEXTRAFLASH keep-latest every ~1 s, MEAS 0, no PAIR. Both detectors fired. Mic was not deaf. Keep-latest of one pending flash dropped the flash that a later-ingested beep-like pulse (60 fps measure-queue lag) still sat inside ±400 ms of.
+
+Build 16 keeps unpaired flashes until they pair or age out; pairs the nearest flash inside the window; latest beep-like pulse still wins; voice still never queues. START/STOP/RESET are pinned on screen. MIC needle/strip display gain is envelope × 16 (not a detector threshold). NTSC lock MISS stays honest. Do not change Guy's 65/70/35/±400.
+
+HostHarness: 1 Hz FLASH + delayed 1 Hz AUDIOPULSE inside ±400 ms must PAIR (fails on keep-latest); in-order 1 Hz still pairs; speech still rejected; smeared 15–80 ms still pairs; constant offset / 30 vs 29.97 still hold.
+
+Install with devicectl only — do not launch. No TestFlight.

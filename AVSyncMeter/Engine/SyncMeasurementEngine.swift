@@ -6,13 +6,15 @@ import Foundation
 /// `AudioPulseEvent` with timestamps already on ONE clock (CaptureClock unified
 /// seconds in the live path).
 ///
-/// Pairing: at most one pending flash and one pending pulse. Latest beep-like
-/// pulse wins; voice/chatter is never queued. They pair only if both are present
-/// and |audio − video| ≤ maxPairOffsetSeconds (default ±400 ms, enough for
-/// monitor+PA+Mitti and a +164 ms step, tight enough that a 220–350 ms ring-down
-/// replica cannot steal the next 1 Hz flash). Voice-like pulses never pair, so
-/// extra speech in the window cannot steal. pairingWindowSeconds is how long a
-/// lone event waits.
+/// Pairing: unpaired flashes stay in a short queue (not keep-latest of one).
+/// A 60 fps measure queue can ingest the next 1 Hz flash before a beep-like
+/// pulse whose onset is still in window of the previous flash — dropping that
+/// flash as extra was zero pairs with FLASH+AUDIOPULSE marks. Latest beep-like
+/// pulse still wins; voice/chatter is never queued. Pair if |audio − video|
+/// ≤ maxPairOffsetSeconds (default ±400 ms, enough for monitor+PA+Mitti and a
+/// +164 ms step, tight enough that a 220–350 ms ring-down replica cannot steal
+/// the next 1 Hz flash). Voice-like pulses never pair. pairingWindowSeconds is
+/// how long a lone event waits.
 ///
 /// Sign: offsetMilliseconds = (audio - video) * 1000. See SyncSignConvention.
 final class SyncMeasurementEngine {
@@ -33,7 +35,7 @@ final class SyncMeasurementEngine {
     private(set) var statistics = MeasurementStatistics()
     private(set) var unpairedRejected = 0
     private(set) var diagnostics: [DiagnosticEvent] = []
-    private var pendingFlash: VisualFlashEvent?
+    private var pendingFlashes: [VisualFlashEvent] = []
     private var pendingPulse: AudioPulseEvent?
     /// Monotonic media time of the most recently seen event, for aging.
     private var latestMediaTime: Double = 0
@@ -47,7 +49,7 @@ final class SyncMeasurementEngine {
         statistics.reset()
         unpairedRejected = 0
         diagnostics.removeAll()
-        pendingFlash = nil
+        pendingFlashes.removeAll()
         pendingPulse = nil
         latestMediaTime = 0
     }
@@ -68,10 +70,10 @@ final class SyncMeasurementEngine {
             audioThreshold: nil,
             captureFPS: nil
         ))
-        if let old = pendingFlash {
-            rejectExtraFlash(old)
+        pendingFlashes.append(event)
+        if pendingFlashes.count > 1 {
+            pendingFlashes.sort { $0.timestampSeconds < $1.timestampSeconds }
         }
-        pendingFlash = event
         expireStale(now: event.timestampSeconds)
         return pairReady()
     }
@@ -129,25 +131,49 @@ final class SyncMeasurementEngine {
     }
 
     private func pairHeadsIfReady() -> SyncSample? {
-        guard let flash = pendingFlash, let pulse = pendingPulse else {
-            return nil
-        }
+        guard let pulse = pendingPulse else { return nil }
         if !pulse.isBeepLike {
             pendingPulse = nil
             rejectExtraPulse(pulse)
             return nil
         }
-        let dt = pulse.timestampSeconds - flash.timestampSeconds
-        if abs(dt) <= configuration.maxPairOffsetSeconds {
-            pendingFlash = nil
+        guard !pendingFlashes.isEmpty else { return nil }
+
+        let window = configuration.maxPairOffsetSeconds
+        var bestIndex: Int?
+        var bestAbs = Double.infinity
+        for (i, flash) in pendingFlashes.enumerated() {
+            let dt = abs(pulse.timestampSeconds - flash.timestampSeconds)
+            if dt <= window && dt < bestAbs {
+                bestAbs = dt
+                bestIndex = i
+            }
+        }
+        if let i = bestIndex {
+            let flash = pendingFlashes.remove(at: i)
             pendingPulse = nil
+            // Same-beat extras (AE double-pump ~40–150 ms) must not sit around
+            // to steal the next 1 Hz pulse. The next 1 Hz flash is ~1 s away.
+            let beat = 0.15
+            var leftovers: [VisualFlashEvent] = []
+            leftovers.reserveCapacity(pendingFlashes.count)
+            for extra in pendingFlashes {
+                if abs(extra.timestampSeconds - flash.timestampSeconds) < beat {
+                    rejectExtraFlash(extra)
+                } else {
+                    leftovers.append(extra)
+                }
+            }
+            pendingFlashes = leftovers
             return emitPair(flash: flash, pulse: pulse)
         }
+
         // Not pairable: expire the older head so a ring-down replica cannot steal
         // the next flash (1:1 chronological, extra pulses expire unpaired).
-        if flash.timestampSeconds < pulse.timestampSeconds {
-            pendingFlash = nil
-            rejectUnpairedFlash(flash)
+        let oldest = pendingFlashes[0]
+        if oldest.timestampSeconds < pulse.timestampSeconds {
+            pendingFlashes.removeFirst()
+            rejectUnpairedFlash(oldest)
         } else {
             pendingPulse = nil
             rejectUnpairedPulse(pulse)
@@ -201,10 +227,16 @@ final class SyncMeasurementEngine {
         let age = configuration.maxQueueAgeSeconds
         let limit = max(window, age)
 
-        if let flash = pendingFlash, now - flash.timestampSeconds > limit {
-            pendingFlash = nil
-            rejectUnpairedFlash(flash)
+        var kept: [VisualFlashEvent] = []
+        kept.reserveCapacity(pendingFlashes.count)
+        for flash in pendingFlashes {
+            if now - flash.timestampSeconds > limit {
+                rejectUnpairedFlash(flash)
+            } else {
+                kept.append(flash)
+            }
         }
+        pendingFlashes = kept
         if let pulse = pendingPulse, now - pulse.timestampSeconds > limit {
             pendingPulse = nil
             rejectUnpairedPulse(pulse)

@@ -244,7 +244,7 @@ final class MeasurementSession: ObservableObject {
             }
             if let audioLevel {
                 self.liveAudioLevel = audioLevel
-                self.meterHistory.appendMic(t: hostT, value: min(1, audioLevel * 4))
+                self.meterHistory.appendMic(t: hostT, value: MeterHistory.displayMicLevel(audioLevel))
             }
             for kind in marks {
                 self.meterHistory.appendMark(t: hostT, kind: kind)
