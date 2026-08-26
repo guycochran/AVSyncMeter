@@ -14,7 +14,7 @@ struct HostHarness {
         }
 
         func engine() -> SyncMeasurementEngine {
-            SyncMeasurementEngine(configuration: .init(pairingWindowSeconds: 1.0))
+            SyncMeasurementEngine(configuration: .init(pairingWindowSeconds: 0.80, maxPairOffsetSeconds: 0.80))
         }
         func pair(_ e: SyncMeasurementEngine, tVideo: Double, tAudio: Double) -> SyncSample? {
             _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: tVideo, luminance: 0.8, threshold: 0.1))
@@ -924,15 +924,19 @@ struct HostHarness {
         // MARK: - Build 11: pair window, beep PCM, WALK span, fps footer
 
         do {
-            expect(abs(SyncMeasurementEngine.Configuration().maxPairOffsetSeconds - 1.00) < 1e-9, "pair window default is 1.00 s")
-            expect(abs(SyncMeasurementEngine.Configuration().pairingWindowSeconds - 1.00) < 1e-9, "pairingWindow default is 1.00 s")
+            expect(abs(SyncMeasurementEngine.Configuration().maxPairOffsetSeconds - 0.80) < 1e-9, "pair window default is 0.80 s")
+            expect(abs(SyncMeasurementEngine.Configuration().pairingWindowSeconds - 0.80) < 1e-9, "pairingWindow default is 0.80 s")
             let e = SyncMeasurementEngine()
             let s = pair(e, tVideo: 1.0, tAudio: 1.164)
-            expect(s != nil && abs(s!.offsetMilliseconds - 164) < 0.001, "+164 ms still pairs inside 1.00 s window")
+            expect(s != nil && abs(s!.offsetMilliseconds - 164) < 0.001, "+164 ms still pairs inside 0.80 s window")
             let late = pair(e, tVideo: 5.0, tAudio: 5.500)
-            expect(late != nil && abs(late!.offsetMilliseconds - 500) < 0.001, "+500 ms pairs inside 1.00 s (would fail at +/-400 ms)")
-            let early = pair(e, tVideo: 9.0, tAudio: 8.200)
-            expect(early != nil && abs(early!.offsetMilliseconds + 800) < 0.001, "-800 ms pairs inside 1.00 s")
+            expect(late != nil && abs(late!.offsetMilliseconds - 500) < 0.001, "+500 ms pairs inside 0.80 s")
+            let early = pair(e, tVideo: 9.0, tAudio: 8.500)
+            expect(early != nil && abs(early!.offsetMilliseconds + 500) < 0.001, "-500 ms pairs inside 0.80 s")
+            let neighbor = pair(e, tVideo: 13.0, tAudio: 13.980)
+            expect(neighbor == nil, "+980 ms must NOT pair (adjacent Harkwood)")
+            let neighbor2 = pair(e, tVideo: 17.0, tAudio: 18.001)
+            expect(neighbor2 == nil, "+1001 ms must NOT pair (adjacent Harkwood)")
         }
 
         do {
@@ -944,10 +948,10 @@ struct HostHarness {
                 _ = pair(e, tVideo: 3.0, tAudio: 3.006)
                 let snap = e.snapshot()
                 let ms = Int(replicaDelay * 1000)
-                expect(snap.validCount == 2, "1.00 s window: \(ms) ms replica expires vs flash >1 s away", "n=\(snap.validCount)")
-                expect(snap.rejectedCount >= 1, "1.00 s window: \(ms) ms replica expires unpaired")
+                expect(snap.validCount == 2, "0.80 s window: \(ms) ms replica expires vs flash >1 s away", "n=\(snap.validCount)")
+                expect(snap.rejectedCount >= 1, "0.80 s window: \(ms) ms replica expires unpaired")
                 let offsets = snap.recentValidSamples.map(\.offsetMilliseconds)
-                expect(offsets.allSatisfy { abs($0 - 6) < 0.5 }, "1.00 s window: pairs stay ~+6 ms after \(ms) ms replica", "\(offsets)")
+                expect(offsets.allSatisfy { abs($0 - 6) < 0.5 }, "0.80 s window: pairs stay ~+6 ms after \(ms) ms replica", "\(offsets)")
             }
         }
 
@@ -2393,6 +2397,20 @@ struct HostHarness {
         }
 
         do {
+            // Adjacent Harkwood beep (1001 ms) must not pair at 0.80 s. 500 still does.
+            let e = SyncMeasurementEngine()
+            let ok500 = pair(e, tVideo: 1.0, tAudio: 1.500)
+            expect(ok500 != nil && abs(ok500!.offsetMilliseconds - 500) < 0.001, "+500 ms still pairs at 0.80 s")
+            let no980 = pair(e, tVideo: 5.0, tAudio: 5.980)
+            expect(no980 == nil, "T+980 must NOT pair")
+            let no1001 = pair(e, tVideo: 9.0, tAudio: 10.001)
+            expect(no1001 == nil, "T+1001 must NOT pair")
+            let e800 = SyncMeasurementEngine()
+            let ok800 = pair(e800, tVideo: 13.0, tAudio: 13.0 + 0.80)
+            expect(ok800 != nil && abs(ok800!.offsetMilliseconds - 800) < 0.001, "T+800 still pairs at 0.80 s inclusive")
+        }
+
+        do {
             // Speech still rejected at +/-500 ms (SyncCore zip failed this with a +/-500 window).
             let e = SyncMeasurementEngine()
             _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: 1.0, luminance: 0.90, threshold: 0.1))
@@ -2401,7 +2419,7 @@ struct HostHarness {
             let speechM = e.ingestPulse(.voiceLike(timestampSeconds: 0.500))
             expect(speechM == nil, "-500 ms speech must NOT pair")
             expect(e.snapshot().validCount == 0, "+/-500 ms speech creates zero pairs", "n=\(e.snapshot().validCount)")
-            expect(!AudioPulseEvent.voiceLike(timestampSeconds: 0).isPairable, "ongoing speech is still not pairable after 1.00 s window")
+            expect(!AudioPulseEvent.voiceLike(timestampSeconds: 0).isPairable, "ongoing speech is still not pairable after 0.80 s window")
         }
 
         do {

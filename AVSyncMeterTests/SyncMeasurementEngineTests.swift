@@ -3,7 +3,7 @@ import XCTest
 
 final class SyncMeasurementEngineTests: XCTestCase {
     private func engine() -> SyncMeasurementEngine {
-        SyncMeasurementEngine(configuration: .init(pairingWindowSeconds: 1.0))
+        SyncMeasurementEngine(configuration: .init(pairingWindowSeconds: 0.80, maxPairOffsetSeconds: 0.80))
     }
 
     private func pair(_ engine: SyncMeasurementEngine, tVideo: Double, tAudio: Double) -> SyncSample? {

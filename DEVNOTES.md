@@ -243,3 +243,13 @@ HostHarness: same settle+freeze as the app. T+200 DISPLAY LATE/reduce; T−200 E
 
 Stay 0.1.2, CURRENT_PROJECT_VERSION 21. Park iphoneos Debug. Do not install. Phone stays on (20) until Guy plugs in. Do not launch. No TestFlight.
 
+## Build 22 (pairing window 0.80 s; 1001 ms neighbor must not pair)
+
+Guy 10:01 (21): RESET at Mitti 40 was LATE +32. Then a +984 wild reading. Then Mitti 5 ms → EARLY −12 STABLE SPAN 0.4. +984 is the adjacent Harkwood beep (interval 1001 ms) inside the 1.00 s pair window.
+
+(22) sets maxPairOffset / pairingWindow default to **0.80 s**. 500 ms still pairs. 1001 ms neighbor must not. Stored 0.40 and 1.00 migrate to 0.80.
+
+HostHarness after settle+freeze: T+0/80/200/300/500/800 PAIR; T+980 and T+1001 do NOT pair; T−200/−500 still PAIR. Speech reject holds. Sign flip, first-rising, recipe unchanged. Does **not** claim to fix LCD flash-edge ~33 ms.
+
+Stay 0.1.2, CURRENT_PROJECT_VERSION 22. Park iphoneos Debug. Do not install. Phone stays on (21) until USB.
+

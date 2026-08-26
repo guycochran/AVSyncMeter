@@ -94,7 +94,7 @@ swiftc -sdk "$(xcrun --sdk macosx --show-sdk-path)" \
 
 ## Settings
 
-Frame rate, flash/audio sensitivity, central target size, pairing window (±1.00 s default), optional manual thresholds, stability threshold, outlier MAD k, VU history window (1–90 s, default 90 s, live LUMA+MIC plus FLASH/AUDIOPULSE/PAIR marks), and a persisted known-correction (calibration). Default calibration is **0 ms = none applied**, not “sensor latency is zero”.
+Frame rate, flash/audio sensitivity, central target size, pairing window (±0.80 s default), optional manual thresholds, stability threshold, outlier MAD k, VU history window (1–90 s, default 90 s, live LUMA+MIC plus FLASH/AUDIOPULSE/PAIR marks), and a persisted known-correction (calibration). Default calibration is **0 ms = none applied**, not “sensor latency is zero”.
 
 Distance helper (343 m/s, ~1.1 ft/ms) is **off by default** and never subtracted from the offset.
 

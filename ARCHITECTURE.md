@@ -75,7 +75,7 @@ No pitch detection (duration + high-band energy only).
 
 ## Pairing (`SyncMeasurementEngine`)
 
-Unpaired flashes stay in a short queue (not keep-latest of one). A 60 fps measure queue can ingest the next 1 Hz flash before a pairable pulse whose onset is still inside the pairing window of the previous flash; dropping that flash as extra was zero pairs with FLASH+AUDIOPULSE marks. Latest pairable pulse still wins; overlapping speech is never queued. They pair only if `|audio − video|` is inside `maxPairOffsetSeconds` (default ±1.00 s). Isolated house hits pair on onset even if the old isBeepLike duration gate was false (Harkwood 1001 ms / 66.7 ms 3 kHz, or a 200–400 ms periodic tone). Overlapping/ongoing speech never pairs, including ±500 ms. Detector 400 ms mask still swallows ring-down. `pairingWindowSeconds` (default 1.00 s) is how long a lone event waits. No accumulating pairing debt.
+Unpaired flashes stay in a short queue (not keep-latest of one). A 60 fps measure queue can ingest the next 1 Hz flash before a pairable pulse whose onset is still inside the pairing window of the previous flash; dropping that flash as extra was zero pairs with FLASH+AUDIOPULSE marks. Latest pairable pulse still wins; overlapping speech is never queued. They pair only if `|audio − video|` is inside `maxPairOffsetSeconds` (default ±0.80 s). Isolated house hits pair on onset even if the old isBeepLike duration gate was false (Harkwood 1001 ms / 66.7 ms 3 kHz, or a 200–400 ms periodic tone). Overlapping/ongoing speech never pairs, including ±500 ms. Detector 400 ms mask still swallows ring-down. `pairingWindowSeconds` (default 0.80 s) is how long a lone event waits. A 1001 ms Harkwood neighbor must not pair. No accumulating pairing debt.
 
 VU luma/mic and EVT FLASH/AUDIOPULSE/PAIR marks use the same CaptureClock unified seconds as pairing. Wall-clock stamps made 1 Hz spikes look aligned on the strip while `|unified dt|` outside the pairing window never paired. EVT marks follow engine ingest, not a VU envelope threshold.
 
@@ -118,7 +118,7 @@ The harness requires a constant synthetic offset to stay flat, a +164 ms audio s
 | `Engine/CaptureClock.swift` | Per-stream PTS → host timebase + relative A−V rate-lock |
 | `Engine/VideoFlashDetector.swift` | First-edge luma flash (walk back 2-frame last-edge triggers) |
 | `Engine/AudioPulseDetector.swift` | Onset with frozen noise floor; beep-like vs voice |
-| `Engine/SyncMeasurementEngine.swift` | Flash queue + one pairable pulse; pair inside ±1.00 s |
+| `Engine/SyncMeasurementEngine.swift` | Flash queue + one pairable pulse; pair inside ±0.80 s |
 | `Engine/MeasurementStatistics.swift` | Stats + MAD + walk |
 | `Engine/MeterHistory.swift` | Scrolling LUMA+MIC VU + FLASH/AUDIOPULSE/PAIR marks (display only) |
 | `Engine/TestSignalBeep.swift` | Generated 1 kHz PCM / WAV for SIG (not a measurement timestamp) |

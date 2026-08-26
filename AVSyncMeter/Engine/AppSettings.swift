@@ -95,8 +95,8 @@ final class AppSettings: ObservableObject {
         flashSensitivity = defaults.object(forKey: Keys.flashSensitivity) as? Double ?? 0.65
         audioSensitivity = defaults.object(forKey: Keys.audioSensitivity) as? Double ?? 0.65
         let storedPair = defaults.object(forKey: Keys.pairingWindow) as? Double
-        if storedPair == nil || abs((storedPair ?? 0) - 0.40) < 1e-9 {
-            pairingWindowSeconds = 1.00
+        if storedPair == nil || abs((storedPair ?? 0) - 0.40) < 1e-9 || abs((storedPair ?? 0) - 1.00) < 1e-9 {
+            pairingWindowSeconds = 0.80
         } else {
             pairingWindowSeconds = storedPair!
         }

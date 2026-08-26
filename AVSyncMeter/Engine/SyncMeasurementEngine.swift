@@ -11,19 +11,18 @@ import Foundation
 /// pulse whose onset is still in window of the previous flash — dropping that
 /// flash as extra was zero pairs with FLASH+AUDIOPULSE marks. Latest pairable
 /// pulse still wins; overlapping speech is never queued. Pair if |audio − video|
-/// ≤ maxPairOffsetSeconds (default ±1.00 s, so LED processor + Mitti delay fit; a
-/// true 500 ms speakers-only delay must PAIR at ~500, not fail-closed onto
-/// an undelayed residual). Isolated house hits pair on onset even if the old
+/// ≤ maxPairOffsetSeconds (default ±0.80 s, so 500 ms Mitti/LED delay still pairs
+/// and a 1001 ms Harkwood neighbor must not). Isolated house hits pair on onset even if the old
 /// isBeepLike duration gate was false (Harkwood 1001 ms / 66.7 ms 3 kHz,
-/// or a 200–400 ms periodic tone). Overlapping/ongoing speech never pairs, including ±500 ms inside the widened window.
+/// or a 200–400 ms periodic tone). Overlapping/ongoing speech never pairs, including ±500 ms inside the window.
 /// pairingWindowSeconds is how long a lone event waits. Detector 400 ms mask still swallows ring-down.
 ///
 /// Sign: offsetMilliseconds = (audio - video) * 1000. See SyncSignConvention.
 final class SyncMeasurementEngine {
     struct Configuration {
-        var pairingWindowSeconds: Double = 1.00
+        var pairingWindowSeconds: Double = 0.80
         /// Accept a pair only if |audio − video| is inside this window.
-        var maxPairOffsetSeconds: Double = 1.00
+        var maxPairOffsetSeconds: Double = 0.80
         var calibrationOffsetMilliseconds: Double = 0
         var stabilityThresholdMilliseconds: Double = 8
         var outlierMADMultiplier: Double = 3.5
@@ -79,8 +78,10 @@ final class SyncMeasurementEngine {
         while pendingFlashes.count > 8 {
             rejectExtraFlash(pendingFlashes.removeFirst())
         }
+        // Pair first so |dt| == window still matches. Expire leftover after.
+        let sample = pairReady()
         expireStale(now: event.timestampSeconds)
-        return pairReady()
+        return sample
     }
 
     @discardableResult
@@ -111,8 +112,9 @@ final class SyncMeasurementEngine {
             rejectExtraPulse(old)
         }
         pendingPulse = event
+        let sample = pairReady()
         expireStale(now: event.timestampSeconds)
-        return pairReady()
+        return sample
     }
 
     func snapshot() -> MeasurementSnapshot {
@@ -146,11 +148,13 @@ final class SyncMeasurementEngine {
         guard !pendingFlashes.isEmpty else { return nil }
 
         let window = configuration.maxPairOffsetSeconds
+        // 1 ns slack: 13.0+0.80 is 0.8000000000000007 in IEEE, still inclusive 0.80.
+        let windowIncl = window + 1e-9
         var bestIndex: Int?
         var bestAbs = Double.infinity
         for (i, flash) in pendingFlashes.enumerated() {
             let dt = abs(pulse.timestampSeconds - flash.timestampSeconds)
-            if dt <= window && dt < bestAbs {
+            if dt <= windowIncl && dt < bestAbs {
                 bestAbs = dt
                 bestIndex = i
             }
