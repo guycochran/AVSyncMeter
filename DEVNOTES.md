@@ -182,3 +182,14 @@ Build 17: PAIR on the onset of each isolated 1 Hz hit, not on tone duration. A H
 HostHarness CANONICAL is the measured Harkwood equation, not a 1.000 Hz click: 1001.000 ms flash (2 frames / 30 at 30000/1001, 0.9990 Hz) + 66.678 ms 3 kHz tone, file A/V offset 0.000 ms, first event t=11.011 s (10.010 title + 1.001 black). Pulse onset +0 ms and +80 ms MUST PAIR. Cadence 1001 ms × N stays flat (treating it as 1.000 Hz would walk −1 ms/beep). Do not require a 10–20 ms click. Isolated smear +80 still pairs if old isBeepLike was false; 200/300/400 ms isolated tone +80 PAIR on onset; overlapping/ongoing speech still rejected (a periodic 66.7 ms tone is not speech); smeared 15–80 ms still pairs; (16) flash-queue still pairs; constant offset still flat; EVT/ingest marks consistent; VU-aligned wall times with different unified times do not pair.
 
 Install with devicectl only — do not launch. No TestFlight.
+
+
+## Build 18 (2-frame flash stamps first edge, not last)
+
+On-device 0.1.2 (17) Mac-smoke: pairing worked (MEAS 24, WALK +0.09, not 1001 ms wrong-neighbor). Headline AUDIO LATE −6, SPAN +60.8, clusters ~−50/−42/−23 LATE then +11 EARLY then −6.
+
+Hypothesis: a Harkwood 2-frame white (~66.7 ms) was timestamped on the first rising frame when that frame was full white, and on the second/last frame when the first was a dim partial (rolling shutter / camera phase below flashLike). Mixing those edges splits a 0.000 ms file by ~33–67 ms. Mac display-vs-speaker lag is a separate house residual (the −6 median), not the SPAN.
+
+Build 18: `VideoFlashDetector` still triggers on a flash-like pop, then walks back to the **first rising frame** of that bright run (like audio onset walkback). Dim-first + full-second, 60 fps smear, and last-peak gradual shapes all stamp the first edge. HostHarness: 2-frame luma (first vs second) + 66.7 ms 3 kHz at +0 is one cluster near 0, not −50/+11. Do not hide house lag in calibration.
+
+Do not install. Do not launch. No TestFlight.

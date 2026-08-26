@@ -2064,6 +2064,129 @@ struct HostHarness {
             }
         }
 
+        func runFlashShapes(_ shapes: [[Double]], fps: Double, t0: Double, period: Double) -> [Double] {
+            let d = VideoFlashDetector()
+            var times: [Double] = []
+            let dt = 1.0 / fps
+            var t = t0 - 0.55
+            while t < t0 - 0.001 {
+                _ = d.processLuminance(0.05, timestampSeconds: t)
+                t += dt
+            }
+            for (k, shape) in shapes.enumerated() {
+                let start = t0 + Double(k) * period
+                while t < start - 1e-9 {
+                    _ = d.processLuminance(0.05, timestampSeconds: t)
+                    t += dt
+                }
+                t = start
+                for luma in shape {
+                    if let ev = d.processLuminance(luma, timestampSeconds: t) {
+                        times.append(ev.timestampSeconds)
+                    }
+                    t += dt
+                }
+                let hold = start + 0.45
+                while t < hold {
+                    _ = d.processLuminance(0.05, timestampSeconds: t)
+                    t += dt
+                }
+            }
+            return times
+        }
+
+        // MARK: - 2-frame first vs last edge (must not SPAN −50/+11)
+        //
+        // Harkwood is 2 frames white + 66.7 ms 3 kHz at file A/V 0.000 ms.
+        // Trigger may fire on the second/last white frame when the first is a
+        // dim partial. Stamping that last edge on some hits and the first on
+        // others splits a +0 file into clusters ~33–67 ms apart (Guy Mac-smoke
+        // SPAN 60.8, −50/+11). Stamp the FIRST rising frame consistently.
+
+        do {
+            // 29.97 grid: full first vs dim first + full second. Same first-edge stamp.
+            let n = 8
+            let full = Array(repeating: [0.90, 0.90], count: n)
+            let dim = Array(repeating: [0.22, 0.90], count: n)
+            let fps = 30_000.0 / 1_001.0
+            let fullT = runFlashShapes(full, fps: fps, t0: harkwoodT0, period: harkwoodPeriod)
+            let dimT = runFlashShapes(dim, fps: fps, t0: harkwoodT0, period: harkwoodPeriod)
+            expect(fullT.count == n && dimT.count == n, "2-frame full and dim-first each fire \(n)×", "full=\(fullT.count) dim=\(dimT.count)")
+            if fullT.count == n && dimT.count == n {
+                for i in 0..<n {
+                    let want = harkwoodT0 + Double(i) * harkwoodPeriod
+                    expect(abs(fullT[i] - want) < 1e-6, "2-frame full-white stamps FIRST frame", String(format: "i=%d got %.6f want %.6f", i, fullT[i], want))
+                    expect(abs(dimT[i] - want) < 1e-6, "2-frame dim-first stamps FIRST frame not second (+33 ms)", String(format: "i=%d got %.6f want %.6f delta %.1f ms", i, dimT[i], want, (dimT[i] - want) * 1000))
+                    expect(abs(dimT[i] - fullT[i]) < 1e-6, "dim-first and full-white share one edge", String(format: "i=%d dim %.6f full %.6f", i, dimT[i], fullT[i]))
+                }
+            }
+        }
+
+        do {
+            // 60 fps smear of a 66.7 ms 2-frame pulse: first camera frames can be dim.
+            let n = 8
+            let smear = Array(repeating: [0.18, 0.45, 0.90, 0.40], count: n)
+            let stamps = runFlashShapes(smear, fps: 60.0, t0: harkwoodT0, period: harkwoodPeriod)
+            expect(stamps.count == n, "2-frame 60 fps smear fires \(n)×", "n=\(stamps.count)")
+            if stamps.count == n {
+                for i in 0..<n {
+                    let start = harkwoodT0 + Double(i) * harkwoodPeriod
+                    let deltaMs = (stamps[i] - start) * 1000
+                    expect(abs(deltaMs) < 20, "2-frame smear stamps FIRST camera frame not peak/last (~33–67 ms)", String(format: "i=%d delta %+.1f ms stamp %.4f start %.4f", i, deltaMs, stamps[i], start))
+                }
+            }
+        }
+
+        do {
+            // Gradual rise that only becomes flashLike on the last white frame.
+            let n = 8
+            let late = Array(repeating: [0.10, 0.16, 0.25, 0.92], count: n)
+            let stamps = runFlashShapes(late, fps: 60.0, t0: harkwoodT0, period: harkwoodPeriod)
+            expect(stamps.count == n, "2-frame last-peak still fires \(n)×", "n=\(stamps.count)")
+            if stamps.count == n {
+                for i in 0..<n {
+                    let start = harkwoodT0 + Double(i) * harkwoodPeriod
+                    let deltaMs = (stamps[i] - start) * 1000
+                    expect(deltaMs < 20 && deltaMs > -5, "2-frame last-peak stamps FIRST edge not last (~50 ms)", String(format: "i=%d delta %+.1f ms", i, deltaMs))
+                }
+            }
+        }
+
+        do {
+            // Mixed first vs last shapes + 66.7 ms 3 kHz at +0 must be ONE cluster.
+            // Guy Mac-smoke: MEAS 24, SPAN 60.8, clusters −50/+11. That split is
+            // first vs last edge, not 1001 ms wrong-neighbor.
+            let n = 24
+            var shapes: [[Double]] = []
+            for k in 0..<n {
+                switch k % 4 {
+                case 0: shapes.append([0.90, 0.90, 0.90, 0.90])
+                case 1: shapes.append([0.22, 0.90, 0.90, 0.40])
+                case 2: shapes.append([0.18, 0.45, 0.90, 0.40])
+                default: shapes.append([0.10, 0.16, 0.25, 0.92])
+                }
+            }
+            let stamps = runFlashShapes(shapes, fps: 60.0, t0: harkwoodT0, period: harkwoodPeriod)
+            expect(stamps.count == n, "mixed 2-frame first/last fires \(n)×", "n=\(stamps.count)")
+            let e = SyncMeasurementEngine()
+            var offsets: [Double] = []
+            for i in 0..<min(stamps.count, n) {
+                let start = harkwoodT0 + Double(i) * harkwoodPeriod
+                _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: stamps[i], luminance: 0.90, threshold: 0.1))
+                if let s = e.ingestPulse(harkwoodPulse(t: start)) {
+                    offsets.append(s.offsetMilliseconds)
+                }
+            }
+            let snap = e.snapshot()
+            expect(snap.validCount == n, "mixed 2-frame + 66.7 ms 3 kHz at +0 all PAIR", "valid=\(snap.validCount)")
+            expect(abs(snap.medianMilliseconds) < 15, "mixed 2-frame +0 median near 0 (file A/V 0.000 ms)", String(format: "med %.2f", snap.medianMilliseconds))
+            expect(snap.spanMilliseconds < 20, "mixed 2-frame first vs last is one cluster (not SPAN 50+ / −50/+11)", String(format: "span %.2f min %.2f max %.2f offs %@", snap.spanMilliseconds, snap.minMilliseconds, snap.maxMilliseconds, offsets.map { String(format: "%+.1f", $0) }.joined(separator: " ")))
+            expect(abs(snap.walkMsPerEvent ?? 999) < 0.2, "mixed 2-frame +0 stays flat", snap.walkMsPerEvent.map { String(format: "%.4f", $0) } ?? "nil")
+            let late50 = offsets.filter { $0 < -40 }.count
+            let early11 = offsets.filter { $0 > 5 }.count
+            expect(!(late50 >= 3 && early11 >= 3), "must not split into −50 LATE and +11 EARLY clusters", "late50=\(late50) early11=\(early11) offs=\(offsets.map { String(format: "%+.1f", $0) })")
+        }
+
         do {
             // Speech is overlapping/ongoing. A periodic 66.7 ms 3 kHz tone is not speech.
             expect(harkwoodPulse(t: harkwoodT0).isPairable, "periodic 66.7 ms 3 kHz is not speech")

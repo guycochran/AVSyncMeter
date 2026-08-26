@@ -3,12 +3,18 @@ import CoreVideo
 
 /// Detects a single rapid positive luminance transition in a configurable central region.
 ///
-/// First reliable edge: the first frame whose rise vs the previous frame clears a
-/// fixed threshold *and* sits above a slow dark floor. The dark floor is updated
-/// only on quiet frames (not during the flash, not during holdoff), and it always
-/// snaps down when a darker frame appears so a bright first sample cannot hide
-/// later flashes. A lagging EMA that includes the flash is how a threshold can
-/// walk 1 ms/s; this detector does not do that.
+/// Stamp is the **first rising frame** of the bright run, not the last white
+/// frame of a 2-frame pulse. Trigger still requires a flash-like pop (so work
+/// lights do not fire), but a 2-frame Harkwood flash can present a dim first
+/// frame (rolling shutter / camera phase) that is not flash-like; the second
+/// frame then trips the trigger. Walking back to the first sample above the
+/// pre-flash floor keeps a 0.000 ms file in one cluster instead of mixing
+/// first-edge and last-edge stamps (~33-67 ms, SPAN -50/+11).
+///
+/// Dark floor is updated only on quiet frames (not during the flash, not during
+/// holdoff), and it always snaps down when a darker frame appears so a bright
+/// first sample cannot hide later flashes. A lagging EMA that includes the flash
+/// is how a threshold can walk 1 ms/s; this detector does not do that.
 ///
 /// One flash = one event via latch + ~400 ms holdoff + re-arm on a *relative*
 /// drop from the flash peak toward the pre-flash floor. Absolute "must go dark"
@@ -28,6 +34,10 @@ final class VideoFlashDetector {
         /// Re-arm once luma has fallen this fraction of (peak − pre-flash floor).
         /// 0.5 = halfway back toward the floor, not an absolute dark level.
         var rearmDropFraction: Double = 0.50
+        /// Walk back at most this far from the trigger to the first rising frame.
+        /// 2 frames at 29.97 is 66.7 ms; ~5 frames at 60 fps is 83 ms. Must stay
+        /// well under the 400 ms holdoff and the 1001 ms Harkwood period.
+        var lookbackSeconds: Double = 0.090
     }
 
     var configuration: Configuration
@@ -41,6 +51,12 @@ final class VideoFlashDetector {
     private var previousLuminance: Double = 0
     private var peakLuminance: Double = 0
     private var floorAtHit: Double = 0
+    private var recent: [LumaSample] = []
+
+    private struct LumaSample {
+        var timestampSeconds: Double
+        var luminance: Double
+    }
 
     init(configuration: Configuration = Configuration()) {
         self.configuration = configuration
@@ -55,6 +71,7 @@ final class VideoFlashDetector {
         previousLuminance = 0
         peakLuminance = 0
         floorAtHit = 0
+        recent.removeAll()
     }
 
     func processPixelBuffer(_ pixelBuffer: CVPixelBuffer, timestampSeconds: Double) -> VisualFlashEvent? {
@@ -67,6 +84,7 @@ final class VideoFlashDetector {
     func processLuminance(_ luminance: Double, timestampSeconds: Double) -> VisualFlashEvent? {
         lastLuminance = luminance
         lastThreshold = effectiveThreshold()
+        recordRecent(timestampSeconds: timestampSeconds, luminance: luminance)
 
         if !hasBaseline {
             baseline = luminance
@@ -109,10 +127,11 @@ final class VideoFlashDetector {
             holdoffUntilSeconds = timestampSeconds + configuration.holdoffSeconds
             peakLuminance = luminance
             floorAtHit = min(baseline, previousLuminance)
+            let onset = firstEdgeTimestamp(hitTime: timestampSeconds)
             previousLuminance = luminance
             // Do not fold the flash into the dark floor.
             return VisualFlashEvent(
-                timestampSeconds: timestampSeconds,
+                timestampSeconds: onset,
                 luminance: luminance,
                 threshold: lastThreshold
             )
@@ -131,6 +150,33 @@ final class VideoFlashDetector {
         if let manual = configuration.manualThreshold { return max(0.01, manual) }
         // sensitivity 0 → 0.28, sensitivity 1 → 0.04
         return max(0.03, 0.28 - configuration.sensitivity * 0.24)
+    }
+
+    private func recordRecent(timestampSeconds: Double, luminance: Double) {
+        recent.append(LumaSample(timestampSeconds: timestampSeconds, luminance: luminance))
+        let keep = timestampSeconds - (configuration.lookbackSeconds + 0.05)
+        while let first = recent.first, first.timestampSeconds < keep {
+            recent.removeFirst()
+        }
+    }
+
+    /// First rising frame of this bright run. Trigger may be the second/last
+    /// white frame of a 2-frame pulse; stamp the first sample after the last
+    /// dark frame inside the lookback window.
+    private func firstEdgeTimestamp(hitTime: Double) -> Double {
+        let lookback = configuration.lookbackSeconds
+        let onsetFloor = max(floorAtHit, baseline) + lastThreshold * 0.25
+        var firstBrightAfterDark: Double?
+        for sample in recent {
+            if sample.timestampSeconds < hitTime - lookback - 1e-9 { continue }
+            if sample.timestampSeconds > hitTime + 1e-9 { break }
+            if sample.luminance <= onsetFloor {
+                firstBrightAfterDark = nil
+            } else if firstBrightAfterDark == nil {
+                firstBrightAfterDark = sample.timestampSeconds
+            }
+        }
+        return firstBrightAfterDark ?? hitTime
     }
 
     /// Re-arm on a relative drop from the flash peak, not an absolute dark.
