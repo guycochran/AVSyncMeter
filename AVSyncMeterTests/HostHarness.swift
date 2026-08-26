@@ -2100,8 +2100,8 @@ struct HostHarness {
         // Harkwood is 2 frames white + 66.7 ms 3 kHz at file A/V 0.000 ms.
         // Trigger may fire on the second/last white frame when the first is a
         // dim partial. Stamping that last edge on some hits and the first on
-        // others splits a +0 file into clusters ~33–67 ms apart (Guy Mac-smoke
-        // SPAN 60.8, −50/+11). Stamp the FIRST rising frame consistently.
+        // others splits a +0 file into clusters ~33–67 ms apart (18:01 upstairs
+        // MITTI+PA SPAN 60.8, −50/+11; not laptop lag). Stamp the FIRST rising frame consistently.
 
         do {
             // 29.97 grid: full first vs dim first + full second. Same first-edge stamp.
@@ -2154,8 +2154,8 @@ struct HostHarness {
 
         do {
             // Mixed first vs last shapes + 66.7 ms 3 kHz at +0 must be ONE cluster.
-            // Guy Mac-smoke: MEAS 24, SPAN 60.8, clusters −50/+11. That split is
-            // first vs last edge, not 1001 ms wrong-neighbor.
+            // 18:01 upstairs MITTI+PA (not Mac speakers): MEAS 24, SPAN 60.8, −50/+11.
+            // First vs last edge plus HOUSE/Mitti residual, not laptop lag.
             let n = 24
             var shapes: [[Double]] = []
             for k in 0..<n {

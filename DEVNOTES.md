@@ -186,9 +186,9 @@ Install with devicectl only — do not launch. No TestFlight.
 
 ## Build 18 (2-frame flash stamps first edge, not last)
 
-On-device 0.1.2 (17) Mac-smoke: pairing worked (MEAS 24, WALK +0.09, not 1001 ms wrong-neighbor). Headline AUDIO LATE −6, SPAN +60.8, clusters ~−50/−42/−23 LATE then +11 EARLY then −6.
+On-device 0.1.2 (17) 18:01 PT upstairs was MITTI+PA, not Mac speakers. Pairing proved (MEAS 24, WALK +0.09, not 1001 ms wrong-neighbor). SPAN +60.8, clusters −50 vs +11. That SPAN is HOUSE/Mitti residual plus a possible 2-frame flash first vs last edge (~33–67 ms). Do not treat it as laptop display-vs-speaker lag.
 
-Hypothesis: a Harkwood 2-frame white (~66.7 ms) was timestamped on the first rising frame when that frame was full white, and on the second/last frame when the first was a dim partial (rolling shutter / camera phase below flashLike). Mixing those edges splits a 0.000 ms file by ~33–67 ms. Mac display-vs-speaker lag is a separate house residual (the −6 median), not the SPAN.
+A Harkwood 2-frame white (~66.7 ms) can timestamp the first rising frame when that frame is full white, and the second/last frame when the first is a dim partial (rolling shutter / camera phase below flashLike). Mixing those edges splits a 0.000 ms file by ~33–67 ms and can sit on top of a house residual.
 
 Build 18: `VideoFlashDetector` still triggers on a flash-like pop, then walks back to the **first rising frame** of that bright run (like audio onset walkback). Dim-first + full-second, 60 fps smear, and last-peak gradual shapes all stamp the first edge. HostHarness: 2-frame luma (first vs second) + 66.7 ms 3 kHz at +0 is one cluster near 0, not −50/+11. Do not hide house lag in calibration.
 
