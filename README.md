@@ -33,7 +33,7 @@ Engine samples stay `audio − video` (not negated). Example: `+193 ms` at 29.97
 4. Aim the green target at the flash area on the screen.
 5. Set program frame rate in Settings (29.97/59.94 lock capture to 60_000/1001 then 30_000/1001; if the camera cannot, the footer says NTSC lock MISS instead of silent 1/30. 30/60 stay integer). It also converts ms → frames.
 6. Tap **START** (START/STOP/RESET stay on screen). Status is **LISTENING** until pairs arrive.
-7. Home shows AUDIO EARLY or AUDIO LATE, the ms number (median of valid samples minus calibration), and one matching advice line (Increase / Reduce audio delay by X). Type that into Mitti Audio Output; the app does not push delay. Point the camera at the show (projector/LED), mic at the PA. STABLE is the trust signal (SPAN on the same line). Last-25, VU, RAW/CORRECTED, and the long honesty notes live in DIAG.
+7. Home TYPE-THIS shows AUDIO EARLY or AUDIO LATE, the ms number to type, and one matching advice line (Increase / Reduce audio delay by X), biased +33 ms (one 29.97 frame) toward more audio delay so lips are a bit late rather than audio early. Caption: Includes 1-frame safety (33 ms). Type that into Mitti Audio Output; the app does not push delay. Point the camera at the show (projector/LED), mic at the PA. STABLE is the trust signal (SPAN on the same line, measured, not padded). DIAG last-25, VU, RAW/CORRECTED, and Prove it stay raw unpadded.
 8. **SYNC STABLE** means the standard deviation of valid samples is under the Settings threshold (default 8 ms) and you have at least three valid pairs.
 9. Apply the recommended delay in Mitti. Re-measure.
 

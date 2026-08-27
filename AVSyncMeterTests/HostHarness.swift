@@ -2621,6 +2621,48 @@ struct HostHarness {
         }
 
 
+        // MARK: - Build 26: home TYPE-THIS +33 (display only; DIAG/raw/ZERO unpadded)
+        do {
+            expect(SyncSignConvention.typeThisSafetyMilliseconds == 33, "TYPE-THIS pad is 33 ms (one 29.97 frame), not 100")
+            expect(SyncSignConvention.typeThisCaption == "Includes 1-frame safety (33 ms).", "TYPE-THIS caption")
+
+            // measured EARLY -14 (offset -14) -> typeIncrease +47 -> AUDIO EARLY / Increase 47
+            expect(abs(SyncSignConvention.measuredIncrease(offsetMilliseconds: -14) - 14) < 0.0001, "measuredIncrease(-14) = +14")
+            let t14 = SyncSignConvention.typeIncrease(offsetMilliseconds: -14)
+            expect(abs(t14 - 47) < 0.0001, "typeIncrease(-14) = +47 (no round)", String(format: "%+.4f", t14))
+            expect(SyncSignConvention.typeThisHeadline(-14) == "AUDIO EARLY", "home TYPE-THIS -14 headline AUDIO EARLY")
+            let a14 = SyncSignConvention.typeThisAdvice(-14)
+            expect(a14.contains("Increase") && a14.contains("47") && !a14.lowercased().contains("reduce"), "home TYPE-THIS -14 Increase 47", a14)
+            expect(SyncSignConvention.headline(-14) == "AUDIO EARLY", "DIAG headline -14 still AUDIO EARLY (raw)")
+            let r14 = SyncSignConvention.recommendedDelay(-14)
+            expect(r14.contains("14") && r14.contains("Increase") && !r14.contains("47"), "DIAG advice -14 still Increase 14 not 47", r14)
+            expect(SyncSignConvention.shortTag(-14) == "EARLY", "DIAG last-25 -14 still EARLY")
+
+            // measured LATE +263 (offset +263) -> typeIncrease -230 -> AUDIO LATE / Reduce 230
+            expect(abs(SyncSignConvention.measuredIncrease(offsetMilliseconds: 263) + 263) < 0.0001, "measuredIncrease(+263) = -263")
+            let t263 = SyncSignConvention.typeIncrease(offsetMilliseconds: 263)
+            expect(abs(t263 + 230) < 0.0001, "typeIncrease(+263) = -230 (no round)", String(format: "%+.4f", t263))
+            expect(SyncSignConvention.typeThisHeadline(263) == "AUDIO LATE", "home TYPE-THIS +263 headline AUDIO LATE")
+            let a263 = SyncSignConvention.typeThisAdvice(263)
+            expect(a263.contains("Reduce") && a263.contains("230") && !a263.lowercased().contains("increase"), "home TYPE-THIS +263 Reduce 230", a263)
+            expect(SyncSignConvention.headline(263) == "AUDIO LATE", "DIAG headline +263 still AUDIO LATE (raw)")
+            let r263 = SyncSignConvention.recommendedDelay(263)
+            expect(r263.contains("263") && r263.contains("Reduce") && !r263.contains("230"), "DIAG advice +263 still Reduce 263 not 230", r263)
+            expect(SyncSignConvention.shortTag(263) == "LATE", "DIAG last-25 +263 still LATE")
+
+            // measured 0 -> typeIncrease +33 -> AUDIO EARLY / Increase 33
+            let t0 = SyncSignConvention.typeIncrease(offsetMilliseconds: 0)
+            expect(abs(t0 - 33) < 0.0001, "typeIncrease(0) = +33 (no round)", String(format: "%+.4f", t0))
+            expect(SyncSignConvention.typeThisHeadline(0) == "AUDIO EARLY", "home TYPE-THIS 0 headline AUDIO EARLY (people win)")
+            let a0 = SyncSignConvention.typeThisAdvice(0)
+            expect(a0.contains("Increase") && a0.contains("33") && !a0.lowercased().contains("reduce"), "home TYPE-THIS 0 Increase 33", a0)
+            expect(SyncSignConvention.headline(0) == "IN SYNC", "DIAG headline 0 still IN SYNC (raw)")
+            expect(SyncSignConvention.displayDirection(0) == .inSync, "DIAG direction 0 still inSync")
+            expect(SyncSignConvention.shortTag(0) == "SYNC", "DIAG last-25 0 still SYNC")
+            let r0 = SyncSignConvention.recommendedDelay(0)
+            expect(!r0.contains("33"), "DIAG advice 0 is not padded with 33", r0)
+        }
+
         if failed == 0 {
             print("ALL HARNESS TESTS PASSED")
         } else {

@@ -92,13 +92,16 @@ struct MeasurementView: View {
         let settling = session.runState != .idle && !session.clockSnapshot.settled && offset == nil
         let direction: String = {
             if settling { return "CLOCK SETTLING" }
-            return offset.map { MeasurementSession.headline($0) } ?? (session.runState == .idle ? "IDLE" : "LISTENING")
+            return offset.map { SyncSignConvention.typeThisHeadline($0) } ?? (session.runState == .idle ? "IDLE" : "LISTENING")
         }()
         let color: Color = {
             if settling { return VenueTheme.meter }
             guard let offset else { return VenueTheme.dim }
-            if abs(offset) < 0.5 { return VenueTheme.stable }
-            return offset > 0 ? VenueTheme.late : VenueTheme.early
+            switch SyncSignConvention.typeThisDirection(offset) {
+            case .inSync: return VenueTheme.stable
+            case .audioLate: return VenueTheme.late
+            case .audioEarly: return VenueTheme.early
+            }
         }()
         return VStack(spacing: 4) {
             Text(direction)
@@ -107,14 +110,18 @@ struct MeasurementView: View {
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
             if let offset {
-                Text(String(format: "%+.0f ms", offset))
+                Text(String(format: "%+.0f ms", SyncSignConvention.typeIncrease(offsetMilliseconds: offset)))
                     .font(.system(size: 44, weight: .bold, design: .monospaced))
                     .foregroundStyle(.white)
-                Text(SyncSignConvention.recommendedDelay(offset))
+                Text(SyncSignConvention.typeThisAdvice(offset))
                     .font(.system(size: 16, weight: .semibold, design: .monospaced))
                     .foregroundStyle(VenueTheme.meter)
                     .multilineTextAlignment(.center)
                     .minimumScaleFactor(0.7)
+                    .lineLimit(1)
+                Text(SyncSignConvention.typeThisCaption)
+                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                    .foregroundStyle(VenueTheme.dim)
                     .lineLimit(1)
             } else {
                 Text("— ms")

@@ -292,3 +292,13 @@ HostHarness: interpolation cases still green (2-frame 29.97 @ 59.94 first-row vs
 
 Stay 0.1.2, CURRENT_PROJECT_VERSION 25. Park iphoneos Debug. Do not install. Do not launch. No TestFlight. No USB ping. Phone stays on (22) 0cf5335.
 
+
+## Build 26 (people-should-win 1-frame safety on TYPE-THIS)
+
+Guy (25) prove-it: Mitti 0 EARLY −14, Mitti 300 LATE +263. Delta +277 vs 300 (~one 29.97 frame short). 200 at +127 was the outlier. 0 and 300 were the honest pair. People should win: type a number biased one frame toward MORE audio delay so lips are a bit late rather than audio early.
+
+Home TYPE-THIS only: `measuredIncrease = −offsetMilliseconds`; `typeIncrease = measuredIncrease + 33` (one 29.97 frame, 1001/30, not a magic house 100). `typeIncrease > 0` → AUDIO EARLY / Increase; `< 0` → AUDIO LATE / Reduce; `≈ 0` → in sync. Do not round. Caption: “Includes 1-frame safety (33 ms).” SPAN/STABLE stay on measured data. Engine `offsetMilliseconds = (audio − video) × 1000` unchanged. DIAG last-25 / event log / paired offset / Prove it line stay RAW. ZERO/SET store measured milliseconds. Cal default 0. No fudge on engine.
+
+HostHarness: raw pairing UNCHANGED (T+0/80/200/300/500/800 PAIR; T+980/1001 reject; interpolation first-row vs last-row; speech; 0.80 s; T+200 engine +200). New UI checks: −14 → typeIncrease +47 EARLY/Increase 47; +263 → −230 LATE/Reduce 230; 0 → +33 EARLY/Increase 33; DIAG/raw still −14 / +263 / 0.
+
+Stay 0.1.2, CURRENT_PROJECT_VERSION 26. Park iphoneos Debug. Do not install. Do not launch. No TestFlight. No USB ping. Phone stays on (25) aa91a81.

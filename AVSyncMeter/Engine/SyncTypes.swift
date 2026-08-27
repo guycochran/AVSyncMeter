@@ -19,9 +19,49 @@ enum SyncSignConvention {
     AUDIO LATE (positive, a>v, beep after flash) → reduce audio delay by offset ms
     AUDIO EARLY (negative, a<v, beep before flash) → increase audio delay by |offset| ms
     Common house case at delay 0 is AUDIO EARLY (picture late; audio is always fast).
+    Home TYPE-THIS adds one 29.97 frame (33 ms) toward more audio delay. DIAG/ZERO stay raw.
     """
 
+    /// One 29.97 frame (1001/30 ≈ 33.367 ms), taken as 33 ms — not a magic house 100.
+    /// Home TYPE-THIS only. Engine, DIAG, last-25, ZERO/SET stay unpadded.
+    static let typeThisSafetyMilliseconds: Double = 33
+
+    static let typeThisCaption = "Includes 1-frame safety (33 ms)."
+
+    /// Positive means Increase / AUDIO EARLY. Engine offset stays audio − video.
+    static func measuredIncrease(offsetMilliseconds: Double) -> Double {
+        -offsetMilliseconds
+    }
+
+    /// Home TYPE-THIS mapping. Do not round. Do not use on DIAG / raw / ZERO.
+    static func typeIncrease(offsetMilliseconds: Double) -> Double {
+        measuredIncrease(offsetMilliseconds: offsetMilliseconds) + typeThisSafetyMilliseconds
+    }
+
+    static func typeThisDirection(_ offsetMs: Double) -> SyncDirection {
+        let t = typeIncrease(offsetMilliseconds: offsetMs)
+        if abs(t) < 0.5 { return .inSync }
+        return t > 0 ? .audioEarly : .audioLate
+    }
+
+    static func typeThisHeadline(_ offsetMs: Double) -> String {
+        typeThisDirection(offsetMs).headline
+    }
+
+    /// Home TYPE-THIS advice from typeIncrease. DIAG keeps recommendedDelay (raw).
+    static func typeThisAdvice(_ offsetMs: Double) -> String {
+        let t = typeIncrease(offsetMilliseconds: offsetMs)
+        if abs(t) < 0.5 {
+            return "In sync"
+        }
+        if t > 0 {
+            return String(format: "Increase audio delay by %.0f ms", t)
+        }
+        return String(format: "Reduce audio delay by %.0f ms", abs(t))
+    }
+
     /// a>v (offset > 0): AUDIO LATE → reduce. a<v (offset < 0): AUDIO EARLY → increase.
+    /// RAW DIAG mapping. Home TYPE-THIS uses typeThisAdvice, not this.
     static func recommendedDelay(_ offsetMs: Double) -> String {
         if offsetMs > 0 {
             return String(format: "Reduce audio delay by %.0f ms", offsetMs)
