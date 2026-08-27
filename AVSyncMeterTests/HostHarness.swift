@@ -2544,6 +2544,83 @@ struct HostHarness {
         }
 
 
+
+        // MARK: - Build 25: owned 5-frame white + 2 ms 3 kHz click (A=V)
+        //
+        // Movie we own (TestMedia/AVSyncMeter-Test-29.97.mov): 1920x1080,
+        // 30000/1001, ~60 s, 10.010 s black/silent lead-in, then period
+        // 1001 ms (30 frames): 5 frames full white, rest black. Audio is a
+        // ~2 ms 3 kHz click on the first sample of the first white frame.
+        // File A=V. Photodiode-equivalent is still flash onset. Do not
+        // change interpolation / 50% white / engine constants here.
+
+        do {
+            let period = 30.0 * 1_001.0 / 30_000.0
+            let t0 = 300.0 * 1_001.0 / 30_000.0 // 10.010 s black lead-in
+            let clickDur = 0.002
+            let fps = 30_000.0 / 1_001.0
+            let n = 8
+            expect(abs(t0 - 10.010) < 1e-12, "owned movie first flash is t=10.010 s")
+            expect(abs(period - 1.001) < 1e-12, "owned movie period is 1001.000 ms")
+            let fiveFrames = 5.0 / fps
+            expect(abs(fiveFrames * 1_000.0 - 166.833) < 0.01, "5 frames at 29.97 is ~166.8 ms white (not 2-frame / 66.7 ms)")
+
+            let shape = Array(repeating: 0.90, count: 5)
+            let stamps = runFlashShapes(Array(repeating: shape, count: n), fps: fps, t0: t0, period: period)
+            expect(stamps.count == n, "5-frame white every 30 frames fires \(n)×", "n=\(stamps.count) times=\(stamps.prefix(4).map { String(format: "%.4f", $0) })")
+            if stamps.count == n {
+                expect(abs(stamps[0] - t0) < 1e-9, "5-frame first flash is t=10.010 s (first rising, not last white)", String(format: "%.6f", stamps[0]))
+                for i in 0..<n {
+                    let want = t0 + Double(i) * period
+                    let lastWhite = want + 4.0 / fps
+                    expect(abs(stamps[i] - want) < 1e-9, "5-frame flash \(i) stamps first rising (not last white)", String(format: "got %.6f want %.6f last-white would be %.6f", stamps[i], want, lastWhite))
+                }
+            }
+
+            let d = AudioPulseDetector()
+            let until = t0 + Double(n) * period + 0.25
+            _ = feedTone(d, from: max(0, t0 - 1.0), until: t0 - 0.05, paint: { _ in 0.001 })
+            let hits = feedTone(d, from: t0 - 0.05, until: until, paint: { t in
+                var x: Float = 0.001
+                for i in 0..<n {
+                    let start = t0 + Double(i) * period
+                    x += hzTone(t, start: start, dur: clickDur, amp: 0.90, f: 3_000)
+                }
+                return x
+            })
+            expect(hits.count == n, "2 ms 3 kHz click onsets once per 1001 ms", "n=\(hits.count) times=\(hits.prefix(4).map { String(format: "%.4f", $0.timestampSeconds) })")
+            if hits.count == n {
+                expect(abs(hits[0].timestampSeconds - t0) < 0.015, "first 2 ms click onset is t=10.010 s", String(format: "%.4f", hits[0].timestampSeconds))
+            }
+
+            let e = SyncMeasurementEngine()
+            var offs: [Double] = []
+            for i in 0..<n {
+                let T = t0 + Double(i) * period
+                _ = e.ingestFlash(VisualFlashEvent(timestampSeconds: T, luminance: 0.90, threshold: 0.1))
+                let pulse: AudioPulseEvent
+                if i < hits.count {
+                    pulse = hits[i]
+                } else {
+                    pulse = AudioPulseEvent(
+                        timestampSeconds: T,
+                        envelope: 0.90,
+                        threshold: 0.05,
+                        durationSeconds: clickDur,
+                        sharpness: 0.90,
+                        isBeepLike: true
+                    )
+                }
+                if let s = e.ingestPulse(pulse) {
+                    offs.append(s.offsetMilliseconds)
+                }
+            }
+            expect(e.snapshot().validCount == n, "5-frame flash + 2 ms click still PAIR at 0", "valid=\(e.snapshot().validCount) offs=\(offs)")
+            expect(abs(e.snapshot().medianMilliseconds) < 5, "owned pattern A=V median near 0 (click not 66 ms mid-tone)", String(format: "med %.2f offs=\(offs)", e.snapshot().medianMilliseconds))
+            print(String(format: "OWNED 5-frame + 2 ms click: valid %d med %+.2f ms (want ~0)", e.snapshot().validCount, e.snapshot().medianMilliseconds))
+        }
+
+
         if failed == 0 {
             print("ALL HARNESS TESTS PASSED")
         } else {

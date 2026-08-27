@@ -39,7 +39,7 @@ Acoustic travel is intentional. Sound is about 343 m/s (~1.1 ft/ms). Ten feet of
 
 **How to use a pass:** RESET, PCM stereo from the start of the file (10 s lead-in), 15 beeps, STOP, read the **median**. Last-25 is individual samples — they should not climb a millisecond per beep. Then type a known Mitti Audio Output delay and re-measure: the median should move by about that amount.
 
-Prefer Harkwood Sync-One2 **PCM** from the beginning of the file. AAC adds decoder delay (often tens of milliseconds) on top of the house. Those files are external only and are not bundled.
+Prefer the owned `TestMedia/AVSyncMeter-Test-29.97.mov` (**PCM**, 5-frame white, 2 ms 3 kHz click) from the beginning of the file. AAC adds decoder delay (often tens of milliseconds) on top of the house. Harkwood Sync-One2 files are external only and are not bundled.
 
 ## Why repeats help
 

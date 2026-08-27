@@ -27,17 +27,17 @@ Engine samples stay `audio − video` (not negated). Example: `+193 ms` at 29.97
 
 ## How to measure
 
-1. Play a repeating flash + short beep (about 1 Hz works well). A house generator, a timeline in Mitti, or the in-app Phase 2 test signal can be used. Third-party test movies may be used as **external signals only**; they are not bundled or redistributed with this app.
+1. Play a repeating flash + short beep (about 1 Hz works well). Prefer the owned `TestMedia/AVSyncMeter-Test-29.97.mov` (PCM, 5-frame white, 2 ms 3 kHz click, A=V) in Mitti, from the start. A house generator, a timeline, or the in-app Phase 2 test signal can be used. Third-party test movies (including Harkwood) may be used as **external signals only**; they are not redistributed with this app.
 2. Sit where you care about sync.
 3. Open AV Sync Meter. Grant Camera and Microphone.
 4. Aim the green target at the flash area on the screen.
 5. Set program frame rate in Settings (29.97/59.94 lock capture to 60_000/1001 then 30_000/1001; if the camera cannot, the footer says NTSC lock MISS instead of silent 1/30. 30/60 stay integer). It also converts ms → frames.
 6. Tap **START** (START/STOP/RESET stay on screen). Status is **LISTENING** until pairs arrive.
-7. The headline AUDIO EARLY/LATE, large ms, Mitti delay, and frames use the **median of valid samples** (minus calibration), not the latest beep. The last-25 table still lists each hit. Watch MEAS / AVG / MED / VAR / SPAN / WALK. Prefer the median. WALK is ms per beep — on a constant delay it must sit near 0, not climb ~1 ms/beep. RAW vs CORRECTED medians are shown on the main screen (ZERO can make CORRECTED 0; that is not lab-grade). Type the delay into Mitti; the app does not push it. Camera on the LCD / projector / LED. Mic on the PA. PCM from the start. When SYNC STABLE, type AUDIO EARLY into Mitti Audio Output (or mixer). Audio is always fast. Harkwood Sync-One2 files are external only, not bundled: https://harkwood.co.uk/products/sync-one2/test-files/.
+7. Home shows AUDIO EARLY or AUDIO LATE, the ms number (median of valid samples minus calibration), and one matching advice line (Increase / Reduce audio delay by X). Type that into Mitti Audio Output; the app does not push delay. Point the camera at the show (projector/LED), mic at the PA. STABLE is the trust signal (SPAN on the same line). Last-25, VU, RAW/CORRECTED, and the long honesty notes live in DIAG.
 8. **SYNC STABLE** means the standard deviation of valid samples is under the Settings threshold (default 8 ms) and you have at least three valid pairs.
 9. Apply the recommended delay in Mitti. Re-measure.
 
-Mid-show **ZERO / SET TRUE / CLEAR** live on the main meter. On a known-good source (a reference you trust is actually in sync), tap **ZERO**: the app stores `calibrationOffset = measuredOffset − 0` (median of valid pairs if you have any, otherwise the current pair) and the displayed AUDIO EARLY/LATE and Mitti delay become the corrected value. **SET TRUE** does the same against a known offset (example: this source is actually +40 ms AUDIO LATE / engine a−v → `calibrationOffset = measured − 40`; storage is not inverted). **CLEAR** writes 0 = none applied — that is not a claim of zero sensor latency. Phone camera/mic processing can still bias the reading.
+Mid-show **ZERO / SET TRUE / CLEAR** live in DIAG and Settings — not the first thing on the home screen. On a known-good source (a reference you trust is actually in sync), tap **ZERO**: the app stores `calibrationOffset = measuredOffset − 0` (median of valid pairs if you have any, otherwise the current pair) and the displayed AUDIO EARLY/LATE and Mitti delay become the corrected value. **SET TRUE** does the same against a known offset (example: this source is actually +40 ms AUDIO LATE / engine a−v → `calibrationOffset = measured − 40`; storage is not inverted). **CLEAR** writes 0 = none applied — that is not a claim of zero sensor latency. Phone camera/mic processing can still bias the reading.
 
 ## Camera and microphone permissions
 
@@ -110,4 +110,4 @@ See [ACCURACY.md](ACCURACY.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## External validation
 
-First device check used an external Harkwood Sync-One2 file (1080p 29.97 H.264 AAC stereo standard) from https://harkwood.co.uk/products/sync-one2/test-files/. The media is **not** bundled. Guy reported it worked and the reading looked right.
+The reference file we own is `TestMedia/AVSyncMeter-Test-29.97.mov` (1080p 29.97 H.264 + PCM stereo, 5-frame white, 2 ms 3 kHz click, A=V). Generate with `python3 Scripts/generate_avsyncmeter_test_movie.py`. First device check used an external Harkwood Sync-One2 file; that media is **not** bundled or redistributed.

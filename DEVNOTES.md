@@ -280,3 +280,15 @@ HostHarness: interpolation cases still green; T+0/80/200/300/500/800 PAIR; T+980
 
 Stay 0.1.2, CURRENT_PROJECT_VERSION 24. Park iphoneos Debug. Do not install. Do not launch. No TestFlight. No USB ping. Phone stays on (22) 0cf5335.
 
+## Build 25 (owned 29.97 test movie)
+
+First-principles attack on the ~100 ms musical gap: ship a movie we own, not Harkwood. Sharp **2 ms 3 kHz click** (not a 66 ms tone) + **5-frame full white** so flash onset is unambiguous. File A=V (click on the first sample of the first white frame). No fudge factor. Photodiode-equivalent is still flash onset. Interpolation from (23) unchanged (first-rising + row interpolation; not 50% white). Engine constants, sign, 0.80 s window unchanged.
+
+`TestMedia/AVSyncMeter-Test-29.97.mov`: 1920×1080, 30000/1001, 1800 frames, 60.060 s, H.264 High 4.1 8-bit 4:2:0 **`-bf 0 -g 30`** (no B-frame prediction leak on the white edge; Guy’s mitti file has B-frames and identical timing). 10.010 s black/silent lead-in, then period 1001 ms (30 frames): 5 frames full white, 25 black. Audio PCM 48 kHz 16-bit stereo, 2 ms (96 sample) 3 kHz click −3 dBFS cosine taper, first sample of click = first sample of first white frame. MIT, original, not Harkwood IP. Generator: `Scripts/generate_avsyncmeter_test_movie.py`. For Mitti playout — not copied into the iOS app bundle.
+
+DIAG adds **Prove it: Mitti at 0, then 200. The number should move ~200.** Home is still the (24) Jobs cut.
+
+HostHarness: interpolation cases still green (2-frame 29.97 @ 59.94 first-row vs last-row agree, not ±33). 5-frame flash + 2 ms click still PAIR at 0. T+0/80/200/300/500/800 PAIR; T+980/1001 reject; T+200 LATE/reduce; T−200 EARLY/increase; speech; 0.80 s default.
+
+Stay 0.1.2, CURRENT_PROJECT_VERSION 25. Park iphoneos Debug. Do not install. Do not launch. No TestFlight. No USB ping. Phone stays on (22) 0cf5335.
+

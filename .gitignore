@@ -23,9 +23,10 @@ xcuserdata/
 .env.*
 secrets/
 
-# Media (never commit test movies)
+# Media (never commit third-party test movies)
 *.mp4
 *.mov
+!TestMedia/AVSyncMeter-Test-29.97.mov
 *.m4v
 *.mkv
 *.wav

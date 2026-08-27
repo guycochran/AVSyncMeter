@@ -77,6 +77,8 @@ struct DiagnosticsView: View {
                     Text("Audio is always fast — picture is late through the video chain. That is the common house case at delay 0, not a recipe to type AUDIO EARLY when the meter says LATE.")
                         .font(.system(.footnote, design: .monospaced))
                         .foregroundStyle(.secondary)
+                    Text("Prove it: Mitti at 0, then 200. The number should move ~200.")
+                        .font(.system(.footnote, design: .monospaced))
                 }
 
                 Section("Last 25 valid · newest first") {
