@@ -56,10 +56,10 @@ No computer vision. Each frame:
 
 1. Average luminance in a configurable central square (overlaid on the preview).
 2. Maintain a **dark floor** updated only on quiet frames (not during the flash, not during holdoff).
-3. Trigger on a flash-like pop (rise vs previous frame clears the threshold *and* sits above the dark floor). Stamp the **first rising frame** of that bright run, not the last white frame of a 2-frame pulse. A dim first frame (rolling shutter / camera phase) can miss `flashLike` and trip only on the second frame; walking back keeps a 0.000 ms file in one cluster instead of −50/+11 SPAN.
+3. Trigger on a flash-like pop (rise vs previous frame clears the threshold *and* sits above the dark floor). Walk back to the first rising frame of that bright run, then interpolate the stamp *inside* that frame from the readout-axis luma profile: phone PTS is first row, `PTS + (firstWhiteRow/(rows-1)) × readout`. Scalar `processLuminance` has no rows and still stamps the frame. A dim first frame can miss `flashLike` and trip only on the second; walking back plus interpolation keeps first-row-white vs last-row-white from hopping ~17–33 ms.
 4. Latch + **~400 ms** holdoff, re-arm on a **relative drop from the flash peak** toward the pre-flash floor (not an absolute dark that locked AE may never reach). One flash is one event. (8 frames at 60 fps was ~133 ms and let a ~150 ms double-flash steal the next pulse.)
 
-`processLuminance(_:timestampSeconds:)` is the hardware-free test hook.
+`processLuminance(_:timestampSeconds:)` is the scalar test hook. `processReadoutLuma` is the rolling-shutter test hook.
 
 ## Audio pulse (`AudioPulseDetector`)
 

@@ -62,13 +62,13 @@ Honest leftover from unlocked **source** clocks (Mitti video vs Mitti audio on s
 ## Error sources (not compensated)
 
 ### Frame duration
-Camera frames are typically 16.7 ms (60 fps) or 33.3 ms (30 fps). A flash that starts between frames is quantized to the first frame that sees it. A 2-frame white (Harkwood ~66.7 ms) is stamped on that first rising frame, not mixed with the last white frame — mixing those edges is a ~33–67 ms SPAN split, not house lag. Worst-case leftover quantization is about one camera frame period.
+Camera frames are typically 16.7 ms (60 fps) or 33.3 ms (30 fps). A 2-frame white (Harkwood ~66.7 ms) is stamped on the first rising *edge*, not mixed with the last white frame — mixing those edges is a ~33–67 ms SPAN split, not house lag. With a readout-axis luma profile, that edge is interpolated inside the first rising frame so first-row-white vs last-row-white at 59.94 does not hop a 29.97 frame (~33 ms). Leftover quantization without a profile is about one camera frame period.
 
 ### Exposure
 A long exposure averages the flash with the dark field. A short flash may look dimmer or land in the “wrong” frame. Auto-exposure can hunt in a dark venue.
 
 ### Rolling shutter
-CMOS rows are not exposed at the same instant. A flash occupying the central region is still smeared in time across the readout. This is usually a few milliseconds, not tens, but it is not zero.
+CMOS rows are not exposed at the same instant. Phone PTS is the first row; 59.94 readout is ~17 ms across the frame. (23) interpolates flash time from which rows are white (`PTS + fraction × readout`) so a 2-frame 29.97 flash does not hop ~33 ms between first-row-white and last-row-white on the same surface. Residual after interpolation is a few milliseconds (threshold crossing inside a row), not a whole frame. This is not an LCD-vs-show / 130 ms fix.
 
 ### Screen refresh and projector buffering
 The LED wall or projector presents the flash after its own frame store, scan, and LED mapping. That delay is part of **house** sync (you want it). It is not phone error. Phone-vs-screen interaction (aliasing between refresh and camera shutter) can add beat-frequency jitter.

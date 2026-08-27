@@ -2441,6 +2441,109 @@ struct HostHarness {
             expect(offsets.allSatisfy { abs($0 - 80) < 0.5 }, "every pair is the 66.7 ms 3 kHz +80, not speech", "\(offsets)")
         }
 
+        // MARK: - Build 23: rolling-shutter interpolation (2-frame 29.97 @ 59.94)
+        //
+        // Phone PTS is first row. 59.94 readout ~16.68 ms. A 2-frame Harkwood
+        // flash that is first-row-white vs last-row-white must NOT hop a whole
+        // 29.97 frame (~33 ms) or a whole capture frame (~17 ms). Scalar
+        // processLuminance cannot see which rows are white; processReadoutLuma
+        // stamps PTS + (firstWhiteRow/(rows-1))*readout inside the first rising
+        // frame. This is flash-edge geometry on ONE surface, not LCD-vs-show.
+
+        func rollingShutterStamps(alignLastRow: Bool, n: Int, t0: Double, period: Double) -> [Double] {
+            let captureFps = 60_000.0 / 1_001.0
+            let programFps = 30_000.0 / 1_001.0
+            let R = 1.0 / captureFps
+            let flashDur = 2.0 / programFps
+            let rows = 16
+            let d = VideoFlashDetector()
+            var times: [Double] = []
+            for k in 0..<n {
+                let T = t0 + Double(k) * period
+                let gridOrigin = alignLastRow ? (T - R) : T
+                var t = gridOrigin - 30.0 * R
+                while t < T - 0.45 {
+                    t += R
+                }
+                while t < T + 0.18 {
+                    var profile = [Double](repeating: 0.05, count: rows)
+                    for y in 0..<rows {
+                        let tRow = t + Double(y) / Double(rows - 1) * R
+                        if tRow + 1e-12 >= T && tRow < T + flashDur - 1e-12 {
+                            profile[y] = 0.90
+                        }
+                    }
+                    if let ev = d.processReadoutLuma(profile, timestampSeconds: t, readoutSeconds: R) {
+                        times.append(ev.timestampSeconds)
+                    }
+                    t += R
+                }
+            }
+            return times
+        }
+
+        do {
+            let n = 8
+            let firstT = rollingShutterStamps(alignLastRow: false, n: n, t0: harkwoodT0, period: harkwoodPeriod)
+            let lastT = rollingShutterStamps(alignLastRow: true, n: n, t0: harkwoodT0, period: harkwoodPeriod)
+            expect(firstT.count == n, "rolling-shutter first-row-white fires \(n)×", "n=\(firstT.count) times=\(firstT.prefix(4).map { String(format: "%.4f", $0) })")
+            expect(lastT.count == n, "rolling-shutter last-row-white fires \(n)×", "n=\(lastT.count) times=\(lastT.prefix(4).map { String(format: "%.4f", $0) })")
+
+            let eFirst = SyncMeasurementEngine()
+            let eLast = SyncMeasurementEngine()
+            var offFirst: [Double] = []
+            var offLast: [Double] = []
+            var stampDeltas: [Double] = []
+            for i in 0..<n {
+                let T = harkwoodT0 + Double(i) * harkwoodPeriod
+                if i < firstT.count {
+                    _ = eFirst.ingestFlash(VisualFlashEvent(timestampSeconds: firstT[i], luminance: 0.90, threshold: 0.1))
+                    if let s = eFirst.ingestPulse(harkwoodPulse(t: T)) {
+                        offFirst.append(s.offsetMilliseconds)
+                    }
+                    expect(abs(firstT[i] - T) * 1000 < 5, "first-row-white stamp near true flash (not a frame hop)", String(format: "i=%d stamp %.4f want %.4f delta %+.2f ms", i, firstT[i], T, (firstT[i] - T) * 1000))
+                }
+                if i < lastT.count {
+                    _ = eLast.ingestFlash(VisualFlashEvent(timestampSeconds: lastT[i], luminance: 0.90, threshold: 0.1))
+                    if let s = eLast.ingestPulse(harkwoodPulse(t: T)) {
+                        offLast.append(s.offsetMilliseconds)
+                    }
+                    expect(abs(lastT[i] - T) * 1000 < 5, "last-row-white stamp near true flash (not PTS of the partial frame)", String(format: "i=%d stamp %.4f want %.4f delta %+.2f ms", i, lastT[i], T, (lastT[i] - T) * 1000))
+                }
+                if i < firstT.count && i < lastT.count {
+                    let dMs = abs(firstT[i] - lastT[i]) * 1000
+                    stampDeltas.append(dMs)
+                    expect(dMs < 5, "first-row vs last-row stamps agree within a few ms", String(format: "i=%d delta %.2f ms first %.4f last %.4f", i, dMs, firstT[i], lastT[i]))
+                    expect(abs(dMs - (1_001.0 / 30.0)) > 10, "must not hop one 29.97 frame (~33 ms)", String(format: "i=%d delta %.2f ms", i, dMs))
+                    expect(abs(dMs - (1_001.0 / 60.0)) > 8, "must not hop one 59.94 capture frame (~17 ms)", String(format: "i=%d delta %.2f ms", i, dMs))
+                }
+            }
+            let snapF = eFirst.snapshot()
+            let snapL = eLast.snapshot()
+            expect(snapF.validCount == n && snapL.validCount == n, "rolling-shutter first-row and last-row both PAIR \(n)×", "first=\(snapF.validCount) last=\(snapL.validCount)")
+            expect(abs(snapF.medianMilliseconds) < 5, "first-row-white +0 median near 0", String(format: "med %.2f", snapF.medianMilliseconds))
+            expect(abs(snapL.medianMilliseconds) < 5, "last-row-white +0 median near 0", String(format: "med %.2f", snapL.medianMilliseconds))
+            let medDelta = abs(snapF.medianMilliseconds - snapL.medianMilliseconds)
+            expect(medDelta < 5, "first-row vs last-row offsets agree within a few ms (not ±33 ms clusters)", String(format: "first med %.2f last med %.2f delta %.2f", snapF.medianMilliseconds, snapL.medianMilliseconds, medDelta))
+            expect(snapF.spanMilliseconds < 8 && snapL.spanMilliseconds < 8, "each rolling-shutter phase is one tight cluster", String(format: "first span %.2f last span %.2f", snapF.spanMilliseconds, snapL.spanMilliseconds))
+            let maxStampDelta = stampDeltas.max() ?? 999
+            print(String(
+                format: "ROLLING SHUTTER 2-frame 29.97 @ 59.94: first-row med %+.2f ms last-row med %+.2f ms stamp-delta max %.2f ms (want << 33)",
+                snapF.medianMilliseconds, snapL.medianMilliseconds, maxStampDelta
+            ))
+        }
+
+        do {
+            // Scalar path must still stamp first rising FRAME (no profile → no interpolation).
+            let d = VideoFlashDetector()
+            for i in 0..<20 {
+                _ = d.processLuminance(0.05, timestampSeconds: Double(i) / 60.0)
+            }
+            let ev = d.processLuminance(0.90, timestampSeconds: 1.0)
+            expect(ev != nil && abs((ev?.timestampSeconds ?? -1) - 1.0) < 1e-9, "scalar processLuminance still stamps the frame PTS", ev.map { String(format: "%.6f", $0.timestampSeconds) } ?? "nil")
+        }
+
+
         if failed == 0 {
             print("ALL HARNESS TESTS PASSED")
         } else {

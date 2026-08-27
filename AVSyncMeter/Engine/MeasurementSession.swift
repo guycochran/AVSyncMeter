@@ -51,8 +51,8 @@ final class MeasurementSession: ObservableObject {
             }
             .store(in: &cancellables)
 
-        capture.onVideoBuffer = { [weak self] buffer, _ in
-            self?.handleVideo(buffer)
+        capture.onVideoBuffer = { [weak self] buffer, connection in
+            self?.handleVideo(buffer, connection: connection)
         }
         capture.onAudioBuffer = { [weak self] buffer, _ in
             self?.handleAudio(buffer)
@@ -178,7 +178,7 @@ final class MeasurementSession: ObservableObject {
         }
     }
 
-    private func handleVideo(_ buffer: CMSampleBuffer) {
+    private func handleVideo(_ buffer: CMSampleBuffer, connection: AVCaptureConnection) {
         guard let image = CMSampleBufferGetImageBuffer(buffer) else { return }
         let pts = CaptureManager.hostMappedPTS(sampleBuffer: buffer, session: capture.session)
             ?? CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(buffer))
@@ -189,7 +189,8 @@ final class MeasurementSession: ObservableObject {
             // callback hostNow — that double map jitters the slope.
             let unified = self.captureClock.observe(stream: .video, ptsSeconds: pts, hostSeconds: pts)
             var marks: [(kind: MeterHistory.MarkKind, t: Double)] = []
-            if let flash = self.flashDetector.processPixelBuffer(image, timestampSeconds: unified) {
+            let rotation = connection.videoRotationAngle
+            if let flash = self.flashDetector.processPixelBuffer(image, timestampSeconds: unified, rotationDegrees: rotation) {
                 if self.captureClock.acceptDetectedEvent(stream: .video) {
                     // EVT FLASH = engine ingest, not a VU envelope tick.
                     if let sample = self.engine.ingestFlash(flash) {

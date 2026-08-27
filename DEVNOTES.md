@@ -253,3 +253,15 @@ HostHarness after settle+freeze: T+0/80/200/300/500/800 PAIR; T+980 and T+1001 d
 
 Stay 0.1.2, CURRENT_PROJECT_VERSION 22. Park iphoneos Debug. Do not install. Phone stays on (21) until USB.
 
+
+## Build 23 (rolling-shutter flash interpolation)
+
+Live (22) 0cf5335 on UltraStudio+LCD+Focusrite at Mitti 0: AUDIO LATE +33 STABLE SPAN 11.2 (cluster +32–36). Putting 35 in Mitti hopped to +16 (wrong direction vs a real delay). 33 ms = one 29.97 frame. First-rising-frame stamp was hopping the 2-frame Harkwood flash by ~one frame depending on which rows were white / rolling shutter. Phone PTS is first row; 59.94 roll ~17 ms.
+
+`processLuminance` is still a scalar (central ROI mean) and cannot see which rows are white. (23) keeps that scalar for trigger + VU (do not bump gain; do not re-lock AE). Live `processPixelBuffer` also samples a readout-axis luma profile (full axis, central strip on the other axis; 90° capture rotation → first-in-time is the right edge). Walk back still finds the first rising frame of the bright run; the stamp is then interpolated inside that frame: `PTS + (firstWhiteRow / (rows−1)) × readout`. Last-row-only frames count as bright via the profile so the next full-white frame's PTS does not hop ~17–33 ms.
+
+HostHarness: 2-frame flash at 29.97, 59.94 capture, first-row-white vs last-row-white stamps agree (medians both +1.07 ms, stamp-delta 0.00 ms) — not ±33 ms clusters. T+0/80/200/300/500/800 still PAIR after settle+freeze; T+980/1001 still reject; T+200 LATE/reduce; T−200 EARLY/increase; speech reject; 0.80 s default. Isolated Harkwood 66.7 ms 3 kHz / 1001 ms cadence still pairable. Sign, ZERO/SET/cal 0, CaptureClock freeze / relative A−V / NTSC lock honesty / START pinned / 90 s VU / EVT=ingest unchanged. Recipe unchanged (do not retarget camera to the show surface in this IPA).
+
+This is flash-edge 33 ms on the **same** surface. It does **not** claim to fix LCD-vs-show ~130 ms. If the camera sees the SHOW picture, BM delay is already in the flash; 33 vs a 130 ms “looks better” is likely LCD vs show surface. Copy later: camera on the SHOW surface, not the confidence LCD — only after interpolation is green.
+
+Stay 0.1.2, CURRENT_PROJECT_VERSION 23. Park iphoneos Debug. Do not install. Do not launch. No TestFlight. Phone stays on (22) 0cf5335.
