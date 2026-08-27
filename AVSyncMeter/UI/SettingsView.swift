@@ -84,6 +84,13 @@ struct SettingsView: View {
                             }
                         }
                         .font(.footnote.weight(.semibold))
+                        Button("ZERO this reading (it is actually 0)") {
+                            _ = session.applyCalibrationZero(knownTrueOffset: 0)
+                        }
+                        .font(.footnote.weight(.semibold))
+                        Text("ZERO / SET TRUE also live in DIAG. Not the home screen.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                         Text("Phone camera and microphone processing can introduce measurement bias. For critical systems, verify results against a known reference.")
                             .font(.footnote)
                             .foregroundStyle(.orange)

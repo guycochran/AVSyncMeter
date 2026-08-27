@@ -47,12 +47,10 @@ enum SyncSignConvention {
         }
     }
 
-    /// Measure-screen recipe. Camera on picture (LCD / projector / LED). Mic on the PA. LCD has no sound.
+    /// Measure-screen setup. Camera on the show surface (projector / LED), mic on the PA.
+    /// Advice on screen follows the signed reading — do not hardcode AUDIO EARLY.
     static let measureRecipe: [String] = [
-        "Camera on the LCD / projector / LED.",
-        "Mic on the PA.",
-        "PCM from the start.",
-        "When SYNC STABLE, type AUDIO EARLY into Mitti Audio Output (or mixer). Audio is always fast.",
+        "Point the camera at the show (projector/LED), mic at the PA. Type that into Mitti Audio Output.",
     ]
 }
 

@@ -265,3 +265,18 @@ HostHarness: 2-frame flash at 29.97, 59.94 capture, first-row-white vs last-row-
 This is flash-edge 33 ms on the **same** surface. It does **not** claim to fix LCD-vs-show ~130 ms. If the camera sees the SHOW picture, BM delay is already in the flash; 33 vs a 130 ms “looks better” is likely LCD vs show surface. Copy later: camera on the SHOW surface, not the confidence LCD — only after interpolation is green.
 
 Stay 0.1.2, CURRENT_PROJECT_VERSION 23. Park iphoneos Debug. Do not install. Do not launch. No TestFlight. Phone stays on (22) 0cf5335.
+
+## Build 24 (product cut)
+
+Guy: do what Jobs would do. Cut to the demo. This is a product cut, not another detector.
+
+Home (measure) shows only: version 0.1.2 (24), AUDIO EARLY or AUDIO LATE (existing sign flip: a>v LATE/reduce, a<v EARLY/increase), the ms number, one advice line that matches the sign (“Increase audio delay by X” / “Reduce audio delay by X”), START / STOP / RESET pinned (visible without scrolling on iPhone 14 Pro Max), one setup line — “Point the camera at the show (projector/LED), mic at the PA. Type that into Mitti Audio Output.” — and SPAN/STABLE on one line. STABLE stays the trust signal.
+
+Moved to DIAG (data not deleted): the long Harkwood paragraph, “audio is always fast”, hardcoded “type AUDIO EARLY”, RAW/CORRECTED, last-25 table, VU history (live LUMA+MIC strip + FLASH/AUDIOPULSE/PAIR marks). SET / ZERO stay reachable (header SET, Settings ZERO, DIAG ZERO/SET TRUE/CLEAR) — not the first thing on the home screen.
+
+Kept from (23): rolling-shutter interpolation `stamp = PTS + (firstWhiteRow/(rows−1))×readout`. 2-frame first-vs-last-row must not hop ±33 ms. Engine `offsetMilliseconds = (audio − video) × 1000`. ZERO/SET/cal 0 not inverted. Pair window 0.80 s. 500 pairs. T+980/1001 do not pair. Speech reject. Latest-wins pairable pulse. First-rising + interpolation. CaptureClock freeze / NTSC honesty / EVT=ingest. Engine constants unchanged. No SyncCore. No embed heuristic.
+
+HostHarness: interpolation cases still green; T+0/80/200/300/500/800 PAIR; T+980/1001 reject; T+200 LATE/reduce; T−200 EARLY/increase; speech; 0.80 s default. UI-copy assertions match the new home line (camera at the show / Type that into Mitti), not “audio is always fast” / hardcoded AUDIO EARLY.
+
+Stay 0.1.2, CURRENT_PROJECT_VERSION 24. Park iphoneos Debug. Do not install. Do not launch. No TestFlight. No USB ping. Phone stays on (22) 0cf5335.
+

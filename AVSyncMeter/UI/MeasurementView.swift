@@ -6,9 +6,6 @@ struct MeasurementView: View {
     @State private var showSettings = false
     @State private var showDiagnostics = false
     @State private var showTestSignal = false
-    @State private var showSetTrue = false
-    @State private var knownTrueText = "0"
-    @State private var calibrateNote: String?
 
     var body: some View {
         ZStack {
@@ -16,27 +13,14 @@ struct MeasurementView: View {
             VStack(spacing: 8) {
                 header
                     .padding(.horizontal, 14)
-                ScrollView {
-                    VStack(spacing: 8) {
-                        preview
-                        resultBlock
-                        statsRow
-                        recentTable
-                        meters
-                        calibrateRow
-                        if let calibrateNote {
-                            Text(calibrateNote)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(VenueTheme.early)
-                                .multilineTextAlignment(.center)
-                        }
-                        if settings.showDistanceHelper {
-                            distanceNote
-                        }
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 6)
+                VStack(spacing: 10) {
+                    preview
+                    resultBlock
+                    spanStableLine
+                    setupLine
                 }
+                .padding(.horizontal, 14)
+                Spacer(minLength: 0)
                 controls
                     .padding(.horizontal, 14)
                     .padding(.bottom, 4)
@@ -52,9 +36,6 @@ struct MeasurementView: View {
         }
         .sheet(isPresented: $showTestSignal) {
             TestSignalView()
-        }
-        .sheet(isPresented: $showSetTrue) {
-            setTrueSheet
         }
     }
 
@@ -129,12 +110,12 @@ struct MeasurementView: View {
                 Text(String(format: "%+.0f ms", offset))
                     .font(.system(size: 44, weight: .bold, design: .monospaced))
                     .foregroundStyle(.white)
-                Text(recommendedDelay(offset))
+                Text(SyncSignConvention.recommendedDelay(offset))
                     .font(.system(size: 16, weight: .semibold, design: .monospaced))
                     .foregroundStyle(VenueTheme.meter)
-                Text(frameLine(offset))
-                    .font(.system(size: 15, weight: .medium, design: .monospaced))
-                    .foregroundStyle(VenueTheme.dim)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.7)
+                    .lineLimit(1)
             } else {
                 Text("— ms")
                     .font(.system(size: 44, weight: .bold, design: .monospaced))
@@ -143,15 +124,6 @@ struct MeasurementView: View {
                     .font(.system(size: 14, design: .monospaced))
                     .foregroundStyle(VenueTheme.dim)
             }
-            Text("Headline / Mitti delay = CORRECTED median")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(VenueTheme.dim)
-            rawCorrectedRow
-            stabilityBadge
-            walkBadge
-            calibrationBadge
-            honestyLine
-            pcmHint
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
@@ -159,358 +131,39 @@ struct MeasurementView: View {
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 
-    private var stabilityBadge: some View {
-        let stable = session.snapshot.isStable
-        return Text(stable ? "SYNC STABLE" : "SYNC UNSTABLE")
-            .font(.system(size: 13, weight: .bold, design: .monospaced))
-            .foregroundStyle(stable ? VenueTheme.stable : VenueTheme.unstable)
-            .padding(.top, 2)
-    }
-
-    private var walkBadge: some View {
-        Group {
-            if session.runState != .idle && !session.clockSnapshot.settled && session.snapshot.validCount == 0 {
-                Text("WALK — (clock settling)")
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundStyle(VenueTheme.meter)
-            } else if let walk = session.snapshot.walkMsPerEvent {
-                let green = session.snapshot.walkLooksStable
-                Text(String(format: "WALK %+.2f ms/beep", walk))
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundStyle(green ? VenueTheme.stable : VenueTheme.unstable)
-            } else {
-                Text("WALK — (need ≥8)")
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(VenueTheme.dim)
-            }
-        }
-    }
-
-    private var calibrationBadge: some View {
-        Group {
-            if session.snapshot.calibrationApplied {
-                Text(String(format: "Cal: %+.0f ms applied. ZERO can make CORRECTED 0 — not lab-grade.", session.snapshot.calibrationOffsetMilliseconds))
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(VenueTheme.early)
-                    .multilineTextAlignment(.center)
-            } else {
-                Text("Cal: none applied")
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(VenueTheme.dim)
-            }
-        }
-    }
-
-    private var rawCorrectedRow: some View {
-        let raw = session.snapshot.validCount > 0 ? session.snapshot.medianMilliseconds : nil
-        let corr = session.snapshot.correctedMedianMilliseconds
-        let corrNote = session.snapshot.calibrationApplied ? "after cal" : "same as RAW (none applied)"
-        return HStack(spacing: 8) {
-            offsetColumn(title: "RAW", value: raw, note: "phone measurement")
-            offsetColumn(title: "CORRECTED", value: corr, note: corrNote)
-        }
-        .padding(.horizontal, 6)
-        .padding(.top, 4)
-    }
-
-    private func offsetColumn(title: String, value: Double?, note: String) -> some View {
-        VStack(spacing: 2) {
-            Text(title)
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                .foregroundStyle(VenueTheme.meter)
-            if let value {
-                Text(String(format: "%+.0f ms", value))
-                    .font(.system(size: 18, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.white)
-            } else {
-                Text("— ms")
-                    .font(.system(size: 18, weight: .bold, design: .monospaced))
-                    .foregroundStyle(VenueTheme.dim)
-            }
-            Text(note)
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundStyle(VenueTheme.dim)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.7)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var honestyLine: some View {
-        Text("Not laboratory-grade. Type the number into Mitti (app does not push delay). Use a PCM test file. Start the file from the beginning (10 s lead-in). Harkwood Sync-One2 files: external only, not bundled — harkwood.co.uk/products/sync-one2/test-files/")
-            .font(.system(size: 10, design: .monospaced))
-            .foregroundStyle(VenueTheme.dim)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 8)
-            .padding(.top, 4)
-    }
-
-    private var pcmHint: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(Array(SyncSignConvention.measureRecipe.enumerated()), id: \.offset) { _, line in
-                Text(line)
-            }
-        }
-        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-        .foregroundStyle(VenueTheme.meter)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 2)
-        .padding(.horizontal, 8)
-    }
-
-    private var recentTable: some View {
-        let samples = session.snapshot.recentValidSamples
-        let cal = session.snapshot.calibrationOffsetMilliseconds
-        let total = session.snapshot.validCount
-        let rowHeight: CGFloat = 15
-        let visibleRows = min(max(samples.count, 1), 6)
-        return VStack(alignment: .leading, spacing: 2) {
-            Text("LAST 25 VALID · newest first · scroll")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(VenueTheme.dim)
-            HStack(spacing: 0) {
-                tableCell("#", dim: true, width: 28, align: .leading)
-                tableCell("MS", dim: true, width: 72, align: .trailing)
-                tableCell("DIR", dim: true, width: 64, align: .leading)
-                tableCell("FR", dim: true, width: 56, align: .trailing)
-                Spacer(minLength: 0)
-            }
-            if samples.isEmpty {
-                Text("No valid samples")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(VenueTheme.dim)
-                    .padding(.vertical, 4)
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(samples.enumerated()), id: \.element.id) { index, sample in
-                            let seq = total - index
-                            let corrected = sample.offsetMilliseconds - cal
-                            let dir = SyncSignConvention.shortTag(corrected)
-                            let color: Color = {
-                                switch SyncSignConvention.displayDirection(corrected) {
-                                case .audioEarly: return VenueTheme.early
-                                case .audioLate: return VenueTheme.late
-                                case .inSync: return VenueTheme.stable
-                                }
-                            }()
-                            let frames = settings.frameRate.frames(forMilliseconds: corrected)
-                            HStack(spacing: 0) {
-                                tableCell(String(format: "%02d", seq), dim: false, width: 28, align: .leading)
-                                tableCell(String(format: "%+.0f", corrected), dim: false, width: 72, align: .trailing)
-                                tableCell(dir, dim: false, width: 64, align: .leading, color: color)
-                                tableCell(String(format: "%+.2f", frames), dim: true, width: 56, align: .trailing)
-                                Spacer(minLength: 0)
-                            }
-                            .frame(height: rowHeight)
-                        }
-                    }
-                }
-                .frame(height: CGFloat(visibleRows) * rowHeight)
-                .scrollIndicators(.visible)
-                .background(Color.black.opacity(0.35))
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(VenueTheme.panel)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-    }
-
-    private func tableCell(_ text: String, dim: Bool, width: CGFloat, align: Alignment, color: Color? = nil) -> some View {
-        Text(text)
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
-            .foregroundStyle(color ?? (dim ? VenueTheme.dim : Color.white))
-            .frame(width: width, alignment: align)
-    }
-
-    private var statsRow: some View {
+    private var spanStableLine: some View {
         let s = session.snapshot
-        return HStack(spacing: 0) {
-            stat("MEAS", "\(s.validCount)")
-            stat("AVG", fmt(s.meanMilliseconds))
-            stat("MED", fmt(s.medianMilliseconds))
-            stat("VAR", fmt(s.standardDeviationMilliseconds))
-            stat("SPAN", fmt(s.spanMilliseconds))
-        }
-        .background(VenueTheme.panel)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-    }
-
-    private func stat(_ label: String, _ value: String) -> some View {
-        VStack(spacing: 2) {
-            Text(label)
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+        let span: String = {
+            guard s.validCount > 0 else { return "—" }
+            return String(format: "%+.1f", s.spanMilliseconds)
+        }()
+        let stable = s.isStable
+        let stableText = s.validCount > 0 ? (stable ? "STABLE" : "UNSTABLE") : "—"
+        let stableColor: Color = {
+            guard s.validCount > 0 else { return VenueTheme.dim }
+            return stable ? VenueTheme.stable : VenueTheme.unstable
+        }()
+        return HStack(spacing: 10) {
+            Text("SPAN \(span)")
                 .foregroundStyle(VenueTheme.dim)
-            Text(value)
-                .font(.system(size: 14, weight: .bold, design: .monospaced))
+            Text("·")
+                .foregroundStyle(VenueTheme.dim)
+            Text(stableText)
+                .foregroundStyle(stableColor)
         }
+        .font(.system(size: 13, weight: .bold, design: .monospaced))
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
     }
 
-    private var meters: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            meter(label: "LUMA", value: session.liveLuminance, color: VenueTheme.meter)
-            meter(label: "MIC ", value: MeterHistory.displayMicLevel(session.liveAudioLevel), color: VenueTheme.late)
-            vuHistory
-            if session.capture.observedVideoFPS > 0 {
-                Text(FrameRate.captureFooter(observedFPS: session.capture.observedVideoFPS, picker: settings.frameRate))
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(VenueTheme.dim)
-            }
-        }
-    }
-
-    private var vuHistory: some View {
-        let window = MeterHistory.clampedWindow(settings.meterHistorySeconds)
-        let now = session.meterHistory.lastTimestamp
-        return VStack(alignment: .leading, spacing: 3) {
-            Text(String(format: "VU  last %.0fs  ·  live luma/mic  ·  newest right", window))
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(VenueTheme.dim)
-            vuStrip(label: "LUMA", color: VenueTheme.meter, now: now, window: window, luma: true)
-            vuStrip(label: "MIC ", color: VenueTheme.late, now: now, window: window, luma: false)
-            vuMarkLane(now: now, window: window)
-            HStack {
-                Text(String(format: "−%.0fs", window))
-                Spacer()
-                Text("NOW")
-            }
-            .font(.system(size: 9, weight: .semibold, design: .monospaced))
-            .foregroundStyle(VenueTheme.dim)
-            HStack(spacing: 10) {
-                legendSwatch(VenueTheme.meter, "FLASH")
-                legendSwatch(VenueTheme.late, "AUDIOPULSE")
-                legendSwatch(VenueTheme.early, "PAIR")
-            }
-            .font(.system(size: 9, weight: .semibold, design: .monospaced))
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(VenueTheme.panel)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-    }
-
-    private func legendSwatch(_ color: Color, _ label: String) -> some View {
-        HStack(spacing: 4) {
-            Rectangle()
-                .fill(color)
-                .frame(width: 8, height: 8)
-            Text(label)
-                .foregroundStyle(VenueTheme.dim)
-        }
-    }
-
-    private func vuStrip(label: String, color: Color, now: Double, window: Double, luma: Bool) -> some View {
-        HStack(spacing: 8) {
-            Text(label)
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(VenueTheme.dim)
-                .frame(width: 44, alignment: .leading)
-            GeometryReader { geo in
-                let n = max(Int(geo.size.width.rounded()), 1)
-                let cols = luma
-                    ? session.meterHistory.lumaColumns(now: now, windowSeconds: window, count: n)
-                    : session.meterHistory.micColumns(now: now, windowSeconds: window, count: n)
-                let marks = session.meterHistory.markKindsByColumn(now: now, windowSeconds: window, count: n)
-                Canvas { context, size in
-                    let h = size.height
-                    let w = size.width
-                    context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color.black.opacity(0.35)))
-                    guard n > 0, w > 0, h > 0 else { return }
-                    let barW = w / CGFloat(n)
-                    for (i, v) in cols.enumerated() {
-                        let vh = h * CGFloat(min(1, max(0, v)))
-                        if vh <= 0.5 { continue }
-                        let rect = CGRect(x: CGFloat(i) * barW, y: h - vh, width: max(barW, 1), height: vh)
-                        context.fill(Path(rect), with: .color(color))
-                    }
-                    for (i, kinds) in marks.enumerated() {
-                        let x = CGFloat(i) * barW + barW * 0.5
-                        if luma, kinds.contains(.flash) {
-                            var tri = Path()
-                            tri.move(to: CGPoint(x: x, y: 0))
-                            tri.addLine(to: CGPoint(x: x - 3.5, y: 7))
-                            tri.addLine(to: CGPoint(x: x + 3.5, y: 7))
-                            tri.closeSubpath()
-                            context.fill(tri, with: .color(.white))
-                        }
-                        if !luma, kinds.contains(.audioPulse) {
-                            var tri = Path()
-                            tri.move(to: CGPoint(x: x, y: 0))
-                            tri.addLine(to: CGPoint(x: x - 3.5, y: 7))
-                            tri.addLine(to: CGPoint(x: x + 3.5, y: 7))
-                            tri.closeSubpath()
-                            context.fill(tri, with: .color(.white))
-                        }
-                        if kinds.contains(.pair) {
-                            let rect = CGRect(x: x - 1, y: 0, width: 2, height: h)
-                            context.fill(Path(rect), with: .color(VenueTheme.early.opacity(0.9)))
-                        }
-                    }
-                }
-            }
-            .frame(height: 22)
-        }
-    }
-
-    private func vuMarkLane(now: Double, window: Double) -> some View {
-        HStack(spacing: 8) {
-            Text("EVT ")
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(VenueTheme.dim)
-                .frame(width: 44, alignment: .leading)
-            GeometryReader { geo in
-                let n = max(Int(geo.size.width.rounded()), 1)
-                let marks = session.meterHistory.markKindsByColumn(now: now, windowSeconds: window, count: n)
-                Canvas { context, size in
-                    let h = size.height
-                    let w = size.width
-                    context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color.black.opacity(0.35)))
-                    guard n > 0, w > 0, h > 0 else { return }
-                    let barW = w / CGFloat(n)
-                    for (i, kinds) in marks.enumerated() {
-                        let x = CGFloat(i) * barW + barW * 0.5
-                        let tickW = max(2.5, barW)
-                        if kinds.contains(.flash) {
-                            let rect = CGRect(x: x - tickW * 0.5, y: 1, width: tickW, height: h * 0.45)
-                            context.fill(Path(rect), with: .color(VenueTheme.meter))
-                        }
-                        if kinds.contains(.audioPulse) {
-                            let rect = CGRect(x: x - tickW * 0.5, y: h * 0.5, width: tickW, height: h * 0.45)
-                            context.fill(Path(rect), with: .color(VenueTheme.late))
-                        }
-                        if kinds.contains(.pair) {
-                            let rect = CGRect(x: x - 1, y: 0, width: 2, height: h)
-                            context.fill(Path(rect), with: .color(VenueTheme.early))
-                        }
-                    }
-                }
-            }
-            .frame(height: 10)
-        }
-    }
-
-    private func meter(label: String, value: Double, color: Color) -> some View {
-        HStack(spacing: 8) {
-            Text(label)
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(VenueTheme.dim)
-                .frame(width: 44, alignment: .leading)
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Rectangle().fill(VenueTheme.line)
-                    Rectangle()
-                        .fill(color)
-                        .frame(width: max(0, geo.size.width * CGFloat(min(1, max(0, value)))))
-                }
-            }
-            .frame(height: 8)
-        }
+    private var setupLine: some View {
+        Text(SyncSignConvention.measureRecipe.joined(separator: " "))
+            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+            .foregroundStyle(VenueTheme.meter)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 4)
     }
 
     private var controls: some View {
@@ -532,116 +185,5 @@ struct MeasurementView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .buttonStyle(.plain)
-    }
-
-    private var calibrateRow: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 8) {
-                btn("ZERO", VenueTheme.meter) { zeroAsTrue(0) }
-                btn("SET TRUE", VenueTheme.early) { showSetTrue = true }
-                btn("CLEAR", VenueTheme.dim) { clearCal() }
-            }
-            if abs(settings.previousCalibrationOffsetMilliseconds - settings.calibrationOffsetMilliseconds) > 0.0001 {
-                Button("UNDO LAST CAL") { undoCal() }
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(VenueTheme.meter)
-                    .buttonStyle(.plain)
-            }
-            Text("ZERO = this reading is actually 0. CLEAR = none applied. 0 cal ≠ zero sensor latency.")
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(VenueTheme.dim)
-                .multilineTextAlignment(.center)
-        }
-    }
-
-    private var setTrueSheet: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("This source is actually")
-                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
-                TextField("e.g. 40", text: $knownTrueText)
-                    .keyboardType(.numbersAndPunctuation)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 22, weight: .bold, design: .monospaced))
-                Text("AUDIO LATE is positive (e.g. +40, beep after flash). AUDIO EARLY is negative (e.g. −40). Stored calibration = measured − known true (engine a−v, not inverted).")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                Text("Phone camera and microphone processing can introduce measurement bias. For critical systems, verify results against a known reference.")
-                    .font(.footnote)
-                    .foregroundStyle(.orange)
-                Spacer()
-            }
-            .padding()
-            .navigationTitle("Set true offset")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { showSetTrue = false }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Apply") {
-                        let known = Double(knownTrueText.replacingOccurrences(of: " ", with: "")) ?? 0
-                        zeroAsTrue(known)
-                        showSetTrue = false
-                    }
-                }
-            }
-        }
-        .preferredColorScheme(.dark)
-        .presentationDetents([.medium])
-    }
-
-    private func zeroAsTrue(_ knownTrue: Double) {
-        switch session.applyCalibrationZero(knownTrueOffset: knownTrue) {
-        case .noMeasurement:
-            calibrateNote = "Cannot zero: no measurement yet. Start and get at least one pair."
-        case .applied(let measured, let stored, let known):
-            if abs(known) < 0.0001 {
-                calibrateNote = String(format: "Zeroed. Stored cal %+.0f ms (measured %+.0f). Displayed offset is now 0.", stored, measured)
-            } else {
-                calibrateNote = String(format: "Set true %+.0f ms. Stored cal %+.0f ms (measured %+.0f).", known, stored, measured)
-            }
-        case .nothingToUndo:
-            break
-        }
-    }
-
-    private func clearCal() {
-        _ = session.clearCalibration()
-        calibrateNote = "Calibration cleared. None applied — not a claim of zero sensor latency."
-    }
-
-    private func undoCal() {
-        switch session.undoLastCalibration() {
-        case .nothingToUndo:
-            calibrateNote = "Nothing to undo."
-        case .applied(_, let stored, _):
-            if abs(stored) < 0.0001 {
-                calibrateNote = "Undo: calibration none applied."
-            } else {
-                calibrateNote = String(format: "Undo: restored cal %+.0f ms.", stored)
-            }
-        case .noMeasurement:
-            break
-        }
-    }
-
-    private var distanceNote: some View {
-        Text("Sound ≈ 343 m/s  ·  ≈ 1.1 ft/ms. Distance is informational and is not subtracted from the measurement.")
-            .font(.system(size: 10, design: .monospaced))
-            .foregroundStyle(VenueTheme.dim)
-    }
-
-    private func recommendedDelay(_ offsetMs: Double) -> String {
-        SyncSignConvention.recommendedDelay(offsetMs)
-    }
-
-    private func frameLine(_ offsetMs: Double) -> String {
-        let frames = settings.frameRate.frames(forMilliseconds: offsetMs)
-        return String(format: "%@ fps  /  %+.2f frames", settings.frameRate.displayName, frames)
-    }
-
-    private func fmt(_ v: Double) -> String {
-        guard session.snapshot.validCount > 0 else { return "—" }
-        return String(format: "%+.1f", v)
     }
 }

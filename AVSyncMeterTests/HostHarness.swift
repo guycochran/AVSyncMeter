@@ -2259,11 +2259,11 @@ struct HostHarness {
             expect(early.contains("Increase") && !early.lowercased().contains("reduce"), "a<v (-80) DISPLAY EARLY advice is increase", early)
             expect(SyncSignConvention.headline(80) == "AUDIO LATE" && SyncSignConvention.headline(-80) == "AUDIO EARLY", "headline follows display flip")
             let recipe = SyncSignConvention.measureRecipe.joined(separator: " ")
-            expect(recipe.contains("Camera on the LCD / projector / LED."), "recipe: camera on LCD/projector/LED")
-            expect(recipe.contains("Mic on the PA."), "recipe: mic on the PA")
-            expect(recipe.contains("PCM from the start."), "recipe: PCM from the start")
-            expect(recipe.contains("AUDIO EARLY") && recipe.contains("Mitti Audio Output"), "recipe: type AUDIO EARLY into Mitti", recipe)
-            expect(recipe.contains("Audio is always fast."), "recipe: audio is always fast")
+            expect(recipe.contains("camera at the show"), "recipe: camera at the show", recipe)
+            expect(recipe.contains("projector/LED") && recipe.contains("mic at the PA"), "recipe: projector/LED and mic at PA", recipe)
+            expect(recipe.contains("Type that into Mitti Audio Output"), "recipe: type that into Mitti", recipe)
+            expect(!recipe.contains("AUDIO EARLY"), "recipe does not hardcode AUDIO EARLY", recipe)
+            expect(!recipe.lowercased().contains("audio is always fast"), "recipe does not say audio is always fast", recipe)
             expect(!recipe.lowercased().contains("embed"), "recipe has no HDMI-embed language", recipe)
         }
 
